@@ -1,0 +1,68 @@
+{
+  "name": "react-chronoflow",
+  "version": "0.1.0",
+  "description": "ReactFlow-powered timeline with gap compression, event clustering, bands, and fully customizable nodes",
+  "license": "MIT",
+  "author": "Kevin <kevin@cuesit.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cuesit/react-chronoflow"
+  },
+  "homepage": "https://github.com/cuesit/react-chronoflow#readme",
+  "bugs": "https://github.com/cuesit/react-chronoflow/issues",
+  "keywords": [
+    "react",
+    "timeline",
+    "reactflow",
+    "xyflow",
+    "gantt",
+    "events",
+    "bands",
+    "gap-compression",
+    "clustering",
+    "visualization"
+  ],
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "demo:dev": "npm --prefix demo run dev",
+    "demo:build": "npm --prefix demo run build",
+    "prepublishOnly": "npm run lint && npm run test && npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18",
+    "@xyflow/react": ">=12"
+  },
+  "peerDependenciesMeta": {
+    "@xyflow/react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
