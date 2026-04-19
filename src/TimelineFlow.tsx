@@ -167,6 +167,70 @@ export function TimelineFlow({
   const [nodes, setNodes, onNodesChange] = useNodesState(nodesWithCallbacks as unknown[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges as unknown[]);
   const prevGapSig = useRef("");
+  const graphAxisY = graph.axisY;
+
+  // Wrap onNodesChange to detect when event/stack nodes cross the axis
+  const handleNodesChange = useCallback(
+    (changes: unknown[]) => {
+      onNodesChange(changes as never[]);
+
+      // After applying changes, check if any event nodes crossed the axis
+      setNodes((prevNodes: unknown[]) => {
+        let edgesNeedUpdate = false;
+        const updated = (prevNodes as Array<Record<string, unknown>>).map((node) => {
+          if (node.type !== "event" && node.type !== "eventStack") return node;
+
+          const pos = node.position as { x: number; y: number } | undefined;
+          if (!pos) return node;
+
+          const data = node.data as Record<string, unknown>;
+          const currentSide = data.side as string;
+          const nodeCenter = pos.y + 56; // approximate card half-height
+          const newSide = nodeCenter < graphAxisY ? "top" : "bottom";
+
+          if (newSide === currentSide) return node;
+
+          edgesNeedUpdate = true;
+          const targetPos = newSide === "top" ? "bottom" : "top";
+          return {
+            ...node,
+            data: { ...data, side: newSide },
+            targetPosition: targetPos,
+          };
+        });
+
+        if (edgesNeedUpdate) {
+          // Also flip the corresponding marker source handles
+          const nodeIdToSide = new Map<string, string>();
+          for (const n of updated as Array<Record<string, unknown>>) {
+            if (n.type === "event" || n.type === "eventStack") {
+              nodeIdToSide.set(n.id as string, (n.data as Record<string, unknown>).side as string);
+            }
+          }
+
+          // Update markers: find markers whose edges target a flipped node
+          const finalNodes = (updated as Array<Record<string, unknown>>).map((node) => {
+            if (node.type !== "marker") return node;
+            const markerId = node.id as string;
+            // Find the edge from this marker
+            const edge = (graph.edges as Array<{ source: string; target: string }>).find((e) => e.source === markerId);
+            if (!edge) return node;
+            const targetSide = nodeIdToSide.get(edge.target);
+            if (!targetSide) return node;
+            const data = node.data as Record<string, unknown>;
+            if (data.side === targetSide) return node;
+            const sourcePos = targetSide === "top" ? "top" : "bottom";
+            return { ...node, data: { ...data, side: targetSide }, sourcePosition: sourcePos };
+          });
+
+          return finalNodes as never[];
+        }
+
+        return updated as never[];
+      });
+    },
+    [onNodesChange, setNodes, graphAxisY, graph.edges],
+  );
 
   let fitView: ((opts?: Record<string, unknown>) => void) | null = null;
   try {
@@ -198,7 +262,7 @@ export function TimelineFlow({
       <RF
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={mergedNodeTypes}
         fitView
@@ -206,6 +270,7 @@ export function TimelineFlow({
         minZoom={minZoom}
         maxZoom={maxZoom}
         defaultEdgeOptions={{ type: "default" }}
+        proOptions={{ hideAttribution: true }}
       >
         {children ?? (
           <>

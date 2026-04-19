@@ -100,6 +100,8 @@ export interface TimelineFlowResult {
   toX: (ts: number) => number;
   minTs: number;
   maxTs: number;
+  /** Y position of the timeline axis in pixels. */
+  axisY: number;
 }
 
 // ─── Internals ───────────────────────────────────────────────────────────────
@@ -218,7 +220,7 @@ export function buildTimelineFlow(
     const expanded = allExpanded || expandedGapKeys.has(gapKey);
     const compressed = isCandidate && !expanded;
 
-    const vSpan = compressed ? maxGapDays + (gapDays - maxGapDays) * compressionRatio : gapDays;
+    const vSpan = compressed ? gapDays * compressionRatio : gapDays;
 
     if (isCandidate) {
       gaps.push({ key: gapKey, startTs: start, endTs: end, gapDays, compressed });
@@ -248,14 +250,50 @@ export function buildTimelineFlow(
   const rfNodes: FlowNode[] = [];
   const rfEdges: FlowEdge[] = [];
 
-  // ─── Sections ──────────────────────────────────────────────────────────
+  // ─── Sections (merge compressed spans) ─────────────────────────────────
 
-  const sections = buildSections(minTs, maxTs, sectionGranularity);
+  const rawSections = buildSections(minTs, maxTs, sectionGranularity);
   const dividerTop = 72;
   const dividerHeight = 760;
   const sectionLabelY = 846;
 
-  const boundaries = [...sections.map((s) => s.start), sections.length > 0 ? sections[sections.length - 1].end : maxTs + DAY_MS];
+  // Determine if a section falls entirely within a compressed gap.
+  const isSectionCompressed = (section: Section): boolean =>
+    gaps.some((g) => g.compressed && g.startTs <= section.start && g.endTs >= section.end);
+
+  // Merge consecutive compressed sections into a single range label.
+  const mergedSections: Section[] = [];
+  let mergeRun: Section[] = [];
+
+  const flushMerge = () => {
+    if (mergeRun.length === 0) return;
+    if (mergeRun.length === 1) {
+      mergedSections.push(mergeRun[0]);
+    } else {
+      const firstLabel = mergeRun[0].label;
+      const lastLabel = mergeRun[mergeRun.length - 1].label;
+      mergedSections.push({
+        id: `${mergeRun[0].id}--${mergeRun[mergeRun.length - 1].id}`,
+        start: mergeRun[0].start,
+        end: mergeRun[mergeRun.length - 1].end,
+        label: firstLabel === lastLabel ? firstLabel : `${firstLabel} – ${lastLabel}`,
+      });
+    }
+    mergeRun = [];
+  };
+
+  for (const section of rawSections) {
+    if (isSectionCompressed(section)) {
+      mergeRun.push(section);
+    } else {
+      flushMerge();
+      mergedSections.push(section);
+    }
+  }
+  flushMerge();
+
+  // Render dividers at merged section boundaries.
+  const boundaries = [...mergedSections.map((s) => s.start), mergedSections.length > 0 ? mergedSections[mergedSections.length - 1].end : maxTs + DAY_MS];
 
   boundaries.forEach((boundaryTs, idx) => {
     const bx = toX(Math.max(minTs, Math.min(maxTs + DAY_MS, boundaryTs)));
@@ -271,19 +309,20 @@ export function buildTimelineFlow(
     });
   });
 
-  sections.forEach((section) => {
+  mergedSections.forEach((section) => {
     const x1 = toX(Math.max(minTs, section.start));
     const x2 = toX(Math.min(maxTs + DAY_MS, section.end));
     const centerX = (x1 + x2) / 2;
+    const labelWidth = section.label.length > 6 ? 140 : 104;
     rfNodes.push({
       id: `${section.id}-label`,
       type: "sectionLabel",
-      position: { x: centerX - 52, y: sectionLabelY },
+      position: { x: centerX - labelWidth / 2, y: sectionLabelY },
       data: { label: section.label },
       draggable: false,
       selectable: false,
       zIndex: 40,
-      style: { width: 104 },
+      style: { width: labelWidth },
     });
   });
 
@@ -417,7 +456,7 @@ export function buildTimelineFlow(
     const markerX = toX(event.ts);
     const cardW = Math.max(180, Math.min(280, 120 + event.title.length * 4.2));
 
-    if (current && event.ts - current.maxTs <= concentrationGapMs) {
+    if (current && event.ts - current.minTs <= concentrationGapMs) {
       const nextCount = current.events.length + 1;
       current.events.push(event);
       current.markerX = (current.markerX * (nextCount - 1) + markerX) / nextCount;
@@ -547,5 +586,5 @@ export function buildTimelineFlow(
     }
   }
 
-  return { nodes: rfNodes, edges: rfEdges, gaps, sections, toX, minTs, maxTs };
+  return { nodes: rfNodes, edges: rfEdges, gaps, sections: mergedSections, toX, minTs, maxTs, axisY };
 }

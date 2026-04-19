@@ -211,10 +211,25 @@ export function GapBreakNode({
         renderIcon({ compressed })
       ) : (
         <svg width="18" height="14" viewBox="0 0 18 14" className="shrink-0">
-          <path d="M2 3 C5 0, 5 6, 9 3 C13 0, 13 6, 16 3" fill="none" stroke={compressed ? "#64748b" : "#2563eb"} strokeWidth="1.6" strokeLinecap="round" />
-          <path d="M2 11 C5 8, 5 14, 9 11 C13 8, 13 14, 16 11" fill="none" stroke={compressed ? "#64748b" : "#2563eb"} strokeWidth="1.6" strokeLinecap="round" />
-          <line x1="6" y1="6" x2="12" y2="6" stroke={compressed ? "#64748b" : "#2563eb"} strokeWidth="1.4" strokeLinecap="round" />
-          <line x1="6" y1="8" x2="12" y2="8" stroke={compressed ? "#64748b" : "#2563eb"} strokeWidth="1.4" strokeLinecap="round" />
+          {compressed ? (
+            /* Compressed: outward arrows ‹› — "click to expand" */
+            <>
+              <path d="M7 7 L2.5 7" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M4.5 4.5 L2 7 L4.5 9.5" fill="none" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M11 7 L15.5 7" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M13 4.5 L15.5 7 L13 9.5" fill="none" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <line x1="8.75" y1="3" x2="8.75" y2="11" stroke="#64748b" strokeWidth="1.2" strokeLinecap="round" strokeDasharray="1.5 2" />
+            </>
+          ) : (
+            /* Expanded: inward arrows ›‹ — "click to compress" */
+            <>
+              <path d="M2 7 L6.5 7" stroke="#2563eb" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M4.5 4.5 L7 7 L4.5 9.5" fill="none" stroke="#2563eb" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M15.5 7 L11 7" stroke="#2563eb" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M13 4.5 L10.5 7 L13 9.5" fill="none" stroke="#2563eb" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <line x1="8.75" y1="3" x2="8.75" y2="11" stroke="#2563eb" strokeWidth="1.2" strokeLinecap="round" strokeDasharray="1.5 2" />
+            </>
+          )}
         </svg>
       )}
       <title>{label}</title>

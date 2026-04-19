@@ -2,6 +2,8 @@
 
 ReactFlow-powered timeline with automatic gap compression, event clustering, duration bands, and fully customizable nodes.
 
+![react-chronoflow demo](demo-screenshot.png)
+
 ## Features
 
 - **Gap compression** -- large empty periods automatically compress with clickable break markers to expand/collapse
