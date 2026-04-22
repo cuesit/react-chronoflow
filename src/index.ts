@@ -31,6 +31,7 @@ export {
   createDefaultNodeTypes,
 } from "./reactflow-nodes";
 export type {
+  FanLayout,
   EventNodeProps,
   EventStackNodeProps,
   GapBreakNodeProps,

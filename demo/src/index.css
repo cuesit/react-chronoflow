@@ -4,34 +4,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Stack fan-out: each card starts as a stack layer and morphs into a full card.
-   Collapsed: positioned at stack offset, sized to match lead card, content hidden.
-   Expanded: flies to fan position, inner card upgrades to full EventNode style. */
-
-/* Outer wrapper: handles position */
-.fan-card {
-  transform: translate(var(--stack-x, 0px), var(--stack-y, 0px));
-  opacity: var(--stack-opacity, 0);
-}
-
-.group:hover .fan-card {
-  transform: translate(var(--fan-x, 0px), var(--fan-y, 0px));
-  opacity: 1;
-}
-
-/* Inner card: upgrades from plain stack layer to full card */
-.group:hover .fan-card-inner {
-  border-color: rgb(251 191 36); /* amber-400 */
-  background-color: rgb(255 251 235); /* amber-50 */
-  box-shadow: 0 12px 28px -24px rgba(15, 23, 42, 0.55);
-}
-
-/* Content fades in slightly after the card starts moving */
-.group:hover .fan-card-content {
-  opacity: 1;
-  transition-delay: 120ms;
-}
-
 html,
 body,
 #root {

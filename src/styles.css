@@ -1,0 +1,39 @@
+/* react-chronoflow — fan-out animation for event stacks.
+   Import this file: import "react-chronoflow/styles.css"; */
+
+/* Collapsed: positioned at stack offset, low z-index (behind lead card) */
+.rcf-fan-card {
+  transform: translate(var(--rcf-stack-x, 0px), var(--rcf-stack-y, 0px));
+  opacity: var(--rcf-stack-opacity, 0);
+  pointer-events: none;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              z-index 0s;
+}
+
+/* Expanded: flies to fan position, z-index elevates above lead card */
+.rcf-stack-group:hover .rcf-fan-card {
+  transform: translate(var(--rcf-fan-x, 0px), var(--rcf-fan-y, 0px));
+  opacity: 1;
+  pointer-events: auto;
+  z-index: var(--rcf-fan-z, 60) !important;
+}
+
+/* Inner card morphs from stack layer to full card */
+.rcf-stack-group:hover .rcf-fan-card-inner {
+  border-color: #fbbf24 !important;
+  background-color: #fffbeb !important;
+  box-shadow: 0 12px 28px -24px rgba(15, 23, 42, 0.55);
+}
+
+/* Content fades in after card starts moving */
+.rcf-stack-group:hover .rcf-fan-card-content {
+  opacity: 1 !important;
+  transition-delay: 120ms;
+}
+
+/* Stack count dots fade on hover */
+.rcf-stack-group:hover .rcf-stack-dot {
+  opacity: 0 !important;
+  transition: opacity 0.3s;
+}

@@ -7,6 +7,7 @@ import {
 } from "react-chronoflow";
 import * as xyflow from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import "react-chronoflow/styles.css";
 
 // ─── Full demo data ──────────────────────────────────────────────────────────
 
@@ -171,6 +172,7 @@ export default function App() {
               maxGapDays={45}
               compressionRatio={0.02}
               clusterGapDays={10}
+              eventStackNodeProps={{ fanLayout: "explosion" }}
               height="520px"
               onAddEvent={handleAddEvent}
               onDeleteEvent={handleDeleteEvent}
@@ -228,6 +230,7 @@ export default function App() {
                 maxGapDays={90}
                 compressionRatio={0.02}
                 clusterGapDays={18}
+                eventStackNodeProps={{ fanLayout: "explosion" }}
                 xyflow={xyflow}
               />
             </xyflow.ReactFlowProvider>

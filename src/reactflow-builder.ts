@@ -325,20 +325,45 @@ export function buildTimelineFlow(
     });
   });
 
+  // Build label positions first, then stagger any that overlap
+  const labelHeight = 24;
+  const labelGap = 4;
+  const labelEntries: Array<{ section: Section; x: number; w: number; y: number }> = [];
+
   mergedSections.forEach((section) => {
     const x1 = toX(Math.max(minTs, section.start));
     const x2 = toX(Math.min(maxTs + DAY_MS, section.end));
     const centerX = (x1 + x2) / 2;
     const labelWidth = section.label.length > 6 ? 140 : 104;
+    const lx = centerX - labelWidth / 2;
+
+    // Check if this label overlaps any already-placed label at the same Y row
+    let row = 0;
+    let placed = false;
+    while (!placed) {
+      const y = sectionLabelY + row * (labelHeight + labelGap);
+      const collides = labelEntries.some(
+        (e) => e.y === y && lx < e.x + e.w + labelGap && lx + labelWidth > e.x - labelGap,
+      );
+      if (!collides) {
+        labelEntries.push({ section, x: lx, w: labelWidth, y });
+        placed = true;
+      } else {
+        row += 1;
+      }
+    }
+  });
+
+  labelEntries.forEach(({ section, x, w, y }) => {
     rfNodes.push({
       id: `${section.id}-label`,
       type: "sectionLabel",
-      position: { x: centerX - labelWidth / 2, y: sectionLabelY },
+      position: { x, y },
       data: { label: section.label },
       draggable: false,
       selectable: false,
       zIndex: 40,
-      style: { width: labelWidth },
+      style: { width: w },
     });
   });
 

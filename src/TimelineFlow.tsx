@@ -575,11 +575,28 @@ export function TimelineFlow({
 
   const fitView = rfInstance?.fitView ?? null;
 
+  const prevAddMode = useRef<string | null>(null);
+
   useEffect(() => {
     const allNodes = [...nodesWithCallbacks as unknown[], ...addEventNodes.nodes];
     const allEdges = [...graph.edges as unknown[], ...addEventNodes.edges];
     setNodes(allNodes);
     setEdges(allEdges);
+
+    // Zoom to edit node when entering editing mode
+    if (addMode === "editing" && prevAddMode.current !== "editing" && fitView && editPos) {
+      const timer = setTimeout(() => {
+        fitView({
+          nodes: [{ id: "__add-event-ghost__" }],
+          padding: 1.5,
+          duration: 400,
+          maxZoom: 1,
+        });
+      }, 80);
+      prevAddMode.current = addMode;
+      return () => clearTimeout(timer);
+    }
+    prevAddMode.current = addMode;
 
     const sig = graph.gaps.map((g: GapInfo) => `${g.key}:${g.compressed}`).join(",");
     if (prevGapSig.current && prevGapSig.current !== sig && fitView) {
@@ -588,33 +605,25 @@ export function TimelineFlow({
       return () => clearTimeout(timer);
     }
     prevGapSig.current = sig;
-  }, [nodesWithCallbacks, graph.edges, graph.gaps, addEventNodes, setNodes, setEdges, fitView, fitViewPadding, fitViewDuration]);
+  }, [nodesWithCallbacks, graph.edges, graph.gaps, addEventNodes, addMode, editPos, setNodes, setEdges, fitView, fitViewPadding, fitViewDuration]);
 
   const dotsVariant = BackgroundVariant ? (BackgroundVariant as Record<string, string>).Dots : "dots";
 
   return (
-    <div ref={containerRef} className={`relative flex flex-col ${className ?? "w-full overflow-hidden rounded-xl border border-slate-200 bg-white"}`} style={{ height }}>
+    <div ref={containerRef} className={className} style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", overflow: "hidden", borderRadius: 12, border: className ? undefined : "1px solid #e2e8f0", background: className ? undefined : "#fff", height, fontFamily: "system-ui, -apple-system, sans-serif" }}>
       {/* Filter bar */}
       {showFilters && (filterOptions.lanes.length > 0 || filterOptions.tags.length > 0 || filterOptions.sources.length > 1) && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Filter</span>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, borderBottom: "1px solid #f1f5f9", padding: "8px 12px" }}>
+          <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#94a3b8" }}>Filter</span>
 
           {filterCategories.includes("lane") && filterOptions.lanes.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="text-[10px] font-medium text-slate-400">Lane:</span>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 500, color: "#94a3b8" }}>Lane:</span>
               {filterOptions.lanes.map((lane) => {
                 const active = filters.lanes.includes(lane);
                 return (
-                  <button
-                    key={`lane-${lane}`}
-                    type="button"
-                    onClick={() => toggleFilter("lanes", lane)}
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition ${
-                      active
-                        ? "border border-blue-400 bg-blue-50 text-blue-700"
-                        : "border border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700"
-                    }`}
-                  >
+                  <button key={`lane-${lane}`} type="button" onClick={() => toggleFilter("lanes", lane)}
+                    style={{ borderRadius: 9999, padding: "2px 8px", fontSize: 10, fontWeight: 500, cursor: "pointer", transition: "all 0.15s", border: `1px solid ${active ? "#60a5fa" : "#e2e8f0"}`, background: active ? "#eff6ff" : "#fff", color: active ? "#1d4ed8" : "#64748b" }}>
                     {lane}
                   </button>
                 );
@@ -623,21 +632,13 @@ export function TimelineFlow({
           )}
 
           {filterCategories.includes("tag") && filterOptions.tags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="text-[10px] font-medium text-slate-400">Tag:</span>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 500, color: "#94a3b8" }}>Tag:</span>
               {filterOptions.tags.map((tag) => {
                 const active = filters.tags.includes(tag);
                 return (
-                  <button
-                    key={`tag-${tag}`}
-                    type="button"
-                    onClick={() => toggleFilter("tags", tag)}
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition ${
-                      active
-                        ? "border border-emerald-400 bg-emerald-50 text-emerald-700"
-                        : "border border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700"
-                    }`}
-                  >
+                  <button key={`tag-${tag}`} type="button" onClick={() => toggleFilter("tags", tag)}
+                    style={{ borderRadius: 9999, padding: "2px 8px", fontSize: 10, fontWeight: 500, cursor: "pointer", transition: "all 0.15s", border: `1px solid ${active ? "#34d399" : "#e2e8f0"}`, background: active ? "#ecfdf5" : "#fff", color: active ? "#047857" : "#64748b" }}>
                     {tag}
                   </button>
                 );
@@ -646,21 +647,13 @@ export function TimelineFlow({
           )}
 
           {filterCategories.includes("source") && filterOptions.sources.length > 1 && (
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="text-[10px] font-medium text-slate-400">Source:</span>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 500, color: "#94a3b8" }}>Source:</span>
               {filterOptions.sources.map((src) => {
                 const active = filters.sources.includes(src);
                 return (
-                  <button
-                    key={`source-${src}`}
-                    type="button"
-                    onClick={() => toggleFilter("sources", src)}
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium capitalize transition ${
-                      active
-                        ? "border border-violet-400 bg-violet-50 text-violet-700"
-                        : "border border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700"
-                    }`}
-                  >
+                  <button key={`source-${src}`} type="button" onClick={() => toggleFilter("sources", src)}
+                    style={{ borderRadius: 9999, padding: "2px 8px", fontSize: 10, fontWeight: 500, cursor: "pointer", transition: "all 0.15s", textTransform: "capitalize", border: `1px solid ${active ? "#a78bfa" : "#e2e8f0"}`, background: active ? "#f5f3ff" : "#fff", color: active ? "#6d28d9" : "#64748b" }}>
                     {src}
                   </button>
                 );
@@ -669,17 +662,14 @@ export function TimelineFlow({
           )}
 
           {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={() => setFilters({ lanes: [], tags: [], sources: [] })}
-              className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-400 transition hover:border-red-300 hover:text-red-500"
-            >
+            <button type="button" onClick={() => setFilters({ lanes: [], tags: [], sources: [] })}
+              style={{ borderRadius: 9999, border: "1px solid #e2e8f0", padding: "2px 8px", fontSize: 10, fontWeight: 500, color: "#94a3b8", cursor: "pointer", background: "transparent" }}>
               Clear all
             </button>
           )}
         </div>
       )}
-      <div className="relative min-h-0 flex-1">
+      <div style={{ position: "relative", minHeight: 0, flex: 1 }}>
       <RF
         nodes={nodes}
         edges={edges}
