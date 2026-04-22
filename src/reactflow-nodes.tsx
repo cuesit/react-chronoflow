@@ -31,17 +31,39 @@ export function EventNode({ data, className, dateClassName, titleClassName, lane
   const title = typeof data.title === "string" ? data.title : "";
   const lane = typeof data.lane === "string" ? data.lane : "General";
   const side = data.side === "bottom" ? "bottom" : "top";
+  const tags = Array.isArray(data.tags) ? (data.tags as string[]) : [];
+  const source = data.source as string | undefined;
+  const onDelete = typeof data.onDelete === "function" ? data.onDelete : null;
 
   if (renderContent) {
     return <div className={className}>{renderContent({ date, title, lane, side })}</div>;
   }
 
   return (
-    <div className={className ?? "rounded-2xl border border-amber-400 bg-amber-50 px-3 py-2 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.55)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:border-amber-500 hover:shadow-[0_18px_36px_-20px_rgba(120,53,15,0.5)]"}>
+    <div className={`group/event relative ${className ?? "rounded-2xl border border-amber-400 bg-amber-50 px-3 py-2 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.55)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:border-amber-500 hover:shadow-[0_18px_36px_-20px_rgba(120,53,15,0.5)]"}`}>
+      {source === "user" && onDelete && (
+        <button
+          type="button"
+          onClick={() => (onDelete as () => void)()}
+          className="absolute -right-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-red-200 bg-white text-slate-300 opacity-0 shadow-sm transition-all duration-150 hover:border-red-400 hover:bg-red-50 hover:text-red-500 group-hover/event:opacity-100"
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8">
+            <line x1="1" y1="1" x2="7" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            <line x1="7" y1="1" x2="1" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
       <div className={dateClassName ?? "text-[10px] font-extrabold tracking-[0.08em] text-amber-800"}>{date}</div>
       <div className={titleClassName ?? "mt-1 text-[14px] font-semibold leading-tight text-slate-800"}>{title}</div>
-      <div className={laneClassName ?? "mt-2 inline-flex rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600"}>
-        {lane}
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        <div className={laneClassName ?? "inline-flex rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600"}>
+          {lane}
+        </div>
+        {tags.map((tag) => (
+          <span key={tag} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500">
+            {tag}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -276,8 +298,41 @@ export interface AxisNodeProps {
   className?: string;
 }
 
-export function AxisNode({ className }: AxisNodeProps) {
-  return <div className={className ?? "h-[6px] w-full rounded-full bg-blue-600/95 shadow-[0_0_0_6px_rgba(37,99,235,0.16)]"} />;
+export function AxisNode({ data, className }: AxisNodeProps) {
+  const axisRef = React.useRef<HTMLDivElement>(null);
+  const onAxisClick = typeof data.onAxisClick === "function" ? data.onAxisClick : null;
+  const addModeActive = data.addModeActive === true;
+
+  const handleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!axisRef.current || !onAxisClick) return;
+    const rect = axisRef.current.getBoundingClientRect();
+    const zoom = rect.width / axisRef.current.offsetWidth;
+    const relativeX = (e.clientX - rect.left) / zoom;
+    (onAxisClick as (x: number) => void)(relativeX);
+  }, [onAxisClick]);
+
+  const hitZoneHeight = 40;
+
+  return (
+    <div
+      ref={axisRef}
+      className="relative"
+      style={{ width: "100%", height: 6 }}
+    >
+      {onAxisClick && (
+        <div
+          className="absolute left-0 right-0"
+          style={{
+            top: -(hitZoneHeight / 2 - 3),
+            height: hitZoneHeight,
+            cursor: addModeActive ? "default" : "copy",
+          }}
+          onClick={handleClick}
+        />
+      )}
+      <div className={className ?? "h-[6px] w-full rounded-full bg-blue-600/95 shadow-[0_0_0_6px_rgba(37,99,235,0.16)]"} />
+    </div>
+  );
 }
 
 export interface MarkerNodeProps {
@@ -302,6 +357,164 @@ function toRgba(color: string, alpha: number): string {
   return color;
 }
 
+// ─── AddEventNode ────────────────────────────────────────────────────────────
+
+export interface AddEventNodeProps {
+  data: BaseNodeData;
+}
+
+export function AddEventNode({ data }: AddEventNodeProps) {
+  const mode = data.mode as "ghost" | "editing";
+  const dateLabel = typeof data.dateLabel === "string" ? data.dateLabel : "";
+  const startTs = typeof data.startTs === "number" ? data.startTs : 0;
+  const onConfirm = typeof data.onConfirm === "function" ? data.onConfirm : null;
+  const onCancel = typeof data.onCancel === "function" ? data.onCancel : null;
+
+  const [title, setTitle] = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [lane, setLane] = React.useState("");
+  const [tagsInput, setTagsInput] = React.useState("");
+  const [hasEndDate, setHasEndDate] = React.useState(false);
+  const [endDate, setEndDate] = React.useState("");
+  const [bandColor, setBandColor] = React.useState("#2563eb");
+  const titleRef = React.useRef<HTMLInputElement>(null);
+
+  // Default end date to start + 30 days when toggled on
+  const startIso = startTs ? new Date(startTs).toISOString().slice(0, 10) : "";
+
+  React.useEffect(() => {
+    if (mode === "editing" && titleRef.current) {
+      titleRef.current.focus();
+    }
+  }, [mode]);
+
+  React.useEffect(() => {
+    if (hasEndDate && !endDate && startTs) {
+      const d = new Date(startTs + 30 * 24 * 60 * 60 * 1000);
+      setEndDate(d.toISOString().slice(0, 10));
+    }
+  }, [hasEndDate, endDate, startTs]);
+
+  if (mode === "ghost") {
+    return (
+      <div className="flex w-[160px] flex-col rounded-2xl border-2 border-dashed border-amber-300/80 bg-amber-50/60 px-3 py-2.5 shadow-sm backdrop-blur-sm">
+        <div className="text-[10px] font-extrabold tracking-[0.08em] text-amber-700/50">{dateLabel}</div>
+        <div className="mt-1 flex items-center gap-1.5">
+          <div className="flex h-5 w-5 items-center justify-center rounded-full border border-amber-400/60 bg-white text-amber-500">
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <line x1="5" y1="1" x2="5" y2="9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              <line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </div>
+          <span className="text-[11px] font-semibold text-amber-700/50">Click to place</span>
+        </div>
+      </div>
+    );
+  }
+
+  const isBand = hasEndDate && endDate;
+
+  return (
+    <div className={`w-[220px] rounded-2xl border-2 px-3 py-2.5 shadow-[0_12px_28px_-24px_rgba(120,53,15,0.4)] ${isBand ? "border-blue-400 bg-blue-50" : "border-amber-400 bg-amber-50"}`}>
+      <div className="mb-2 flex items-center justify-between">
+        <div className={`text-[10px] font-extrabold tracking-[0.08em] ${isBand ? "text-blue-800" : "text-amber-800"}`}>
+          {dateLabel}{isBand ? ` → ${new Date(endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase()}` : ""}
+        </div>
+        <button
+          type="button"
+          onClick={() => onCancel && (onCancel as () => void)()}
+          className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition hover:bg-red-50 hover:text-red-500"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <line x1="2" y1="2" x2="8" y2="8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            <line x1="8" y1="2" x2="2" y2="8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+      <input
+        ref={titleRef}
+        type="text"
+        placeholder={isBand ? "Band title" : "Event title"}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className={`w-full rounded-md border bg-white px-2 py-1 text-[13px] font-semibold text-slate-800 outline-none focus:ring-1 ${isBand ? "border-blue-200 focus:border-blue-400 focus:ring-blue-300" : "border-amber-200 focus:border-amber-400 focus:ring-amber-300"}`}
+      />
+      <input
+        type="text"
+        placeholder="Lane (optional)"
+        value={lane}
+        onChange={(e) => setLane(e.target.value)}
+        className={`mt-1.5 w-full rounded-md border bg-white px-2 py-1 text-[11px] text-slate-600 outline-none focus:ring-1 ${isBand ? "border-blue-200 focus:border-blue-400 focus:ring-blue-300" : "border-amber-200 focus:border-amber-400 focus:ring-amber-300"}`}
+      />
+      <textarea
+        placeholder="Description (optional)"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        rows={2}
+        className={`mt-1.5 w-full resize-none rounded-md border bg-white px-2 py-1 text-[11px] text-slate-600 outline-none focus:ring-1 ${isBand ? "border-blue-200 focus:border-blue-400 focus:ring-blue-300" : "border-amber-200 focus:border-amber-400 focus:ring-amber-300"}`}
+      />
+
+      <input
+        type="text"
+        placeholder="Tags (comma-separated)"
+        value={tagsInput}
+        onChange={(e) => setTagsInput(e.target.value)}
+        className={`mt-1.5 w-full rounded-md border bg-white px-2 py-1 text-[11px] text-slate-600 outline-none focus:ring-1 ${isBand ? "border-blue-200 focus:border-blue-400 focus:ring-blue-300" : "border-amber-200 focus:border-amber-400 focus:ring-amber-300"}`}
+      />
+
+      {/* End date toggle */}
+      <div className="mt-2 border-t border-slate-200/60 pt-2">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={hasEndDate}
+            onChange={(e) => setHasEndDate(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-slate-300 accent-blue-500"
+          />
+          <span className="text-[11px] font-medium text-slate-600">Add end date (creates a band)</span>
+        </label>
+        {hasEndDate && (
+          <>
+            <input
+              type="date"
+              value={endDate}
+              min={startIso}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="mt-1.5 w-full rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-300"
+            />
+            <div className="mt-1.5 flex items-center gap-1">
+              <span className="text-[10px] font-medium text-slate-400">Color:</span>
+              {["#2563eb", "#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#ec4899"].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setBandColor(c)}
+                  className={`h-4 w-4 rounded-full border-2 transition ${bandColor === c ? "border-slate-700 scale-110" : "border-transparent hover:border-slate-300"}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      <button
+        type="button"
+        disabled={!title.trim()}
+        onClick={() => {
+          const tags = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
+          onConfirm && (onConfirm as (t: string, d: string, l: string, e?: string, tags?: string[], color?: string) => void)(title, description, lane, isBand ? endDate : undefined, tags.length ? tags : undefined, isBand ? bandColor : undefined);
+        }}
+        className={`mt-2 w-full rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white transition disabled:opacity-40 ${isBand ? "bg-blue-500 hover:bg-blue-600 disabled:hover:bg-blue-500" : "bg-amber-500 hover:bg-amber-600 disabled:hover:bg-amber-500"}`}
+      >
+        {isBand ? "Add Band" : "Add Event"}
+      </button>
+    </div>
+  );
+}
+
+// ─── BandNode ────────────────────────────────────────────────────────────────
+
 export interface BandNodeProps {
   data: BaseNodeData;
   className?: string;
@@ -316,6 +529,8 @@ export function BandNode({ data, className, labelClassName, subtitleClassName, s
   const label = typeof data.label === "string" ? data.label : "";
   const subtitle = typeof data.subtitle === "string" ? data.subtitle : "";
   const color = typeof data.color === "string" ? data.color : "#0ea5e9";
+  const source = data.source as string | undefined;
+  const onDelete = typeof data.onDelete === "function" ? data.onDelete : null;
   const subEvents = Array.isArray(data.subEvents)
     ? (data.subEvents as Array<{ id: string; title: string; date: string; ratio: number; ts: number }>)
     : [];
@@ -333,6 +548,18 @@ export function BandNode({ data, className, labelClassName, subtitleClassName, s
       className={className ?? "group/band relative h-full w-full rounded-2xl px-3 py-2 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.45)] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_16px_32px_-16px_rgba(15,23,42,0.55)]"}
       style={{ backgroundColor: toRgba(color, 0.5) }}
     >
+      {source === "user" && onDelete && (
+        <button
+          type="button"
+          onClick={() => (onDelete as () => void)()}
+          className="absolute -right-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-red-200 bg-white text-slate-300 opacity-0 shadow-sm transition-all duration-150 hover:border-red-400 hover:bg-red-50 hover:text-red-500 group-hover/band:opacity-100"
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8">
+            <line x1="1" y1="1" x2="7" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            <line x1="7" y1="1" x2="1" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
       <div className="absolute inset-0 rounded-2xl transition-colors duration-200 group-hover/band:bg-transparent" style={{ backgroundColor: toRgba("#000000", 0.08) }} />
       <div className="relative h-full w-full">
         <div className={labelClassName ?? "text-[13px] font-extrabold leading-tight text-white drop-shadow-sm"}>{label}</div>
@@ -434,6 +661,16 @@ export function createDefaultNodeTypes(Handle: React.ComponentType<any>, overrid
   const makeDivider = (rfProps: { data: BaseNodeData }) => <SectionDividerNode {...(overrides?.sectionDivider ?? {})} data={rfProps.data} />;
   const makeLabel = (rfProps: { data: BaseNodeData }) => <SectionLabelNode {...(overrides?.sectionLabel ?? {})} data={rfProps.data} />;
   const makeAxis = (rfProps: { data: BaseNodeData }) => <AxisNode {...(overrides?.axis ?? {})} data={rfProps.data} />;
+  const makeAddEvent = (rfProps: { data: BaseNodeData }) => {
+    const side = rfProps.data.side === "bottom" ? "bottom" : "top";
+    const targetPos = side === "top" ? "bottom" : "top";
+    return (
+      <>
+        <H id="timeline-target" type="target" position={targetPos} style={HANDLE_STYLE} />
+        <AddEventNode data={rfProps.data} />
+      </>
+    );
+  };
 
   return {
     event: makeEvent,
@@ -444,5 +681,6 @@ export function createDefaultNodeTypes(Handle: React.ComponentType<any>, overrid
     axis: makeAxis,
     marker: makeMarker,
     band: makeBand,
+    addEvent: makeAddEvent,
   };
 }

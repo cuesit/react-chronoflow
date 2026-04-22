@@ -27,6 +27,7 @@ export {
   AxisNode,
   MarkerNode,
   BandNode,
+  AddEventNode,
   createDefaultNodeTypes,
 } from "./reactflow-nodes";
 export type {
@@ -38,6 +39,7 @@ export type {
   AxisNodeProps,
   MarkerNodeProps,
   BandNodeProps,
+  AddEventNodeProps,
 } from "./reactflow-nodes";
 
 // ─── Domain graph → ReactFlow adapter ────────────────────────────────────────

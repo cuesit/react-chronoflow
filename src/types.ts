@@ -14,6 +14,10 @@ export interface TimelinePointEvent {
   color?: string;
   className?: string;
   style?: CSSProperties;
+  /** Arbitrary tags for filtering. */
+  tags?: string[];
+  /** Origin of this event: "system" (default) or "user" (created via the add-event flow). */
+  source?: "system" | "user";
 }
 
 export interface TimelineBandEvent {
@@ -25,4 +29,8 @@ export interface TimelineBandEvent {
   color?: string;
   className?: string;
   style?: CSSProperties;
+  /** Arbitrary tags for filtering. */
+  tags?: string[];
+  /** Origin of this band: "system" (default) or "user" (created via the add-event flow). */
+  source?: "system" | "user";
 }

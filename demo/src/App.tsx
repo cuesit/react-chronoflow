@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   type TimelineBandEvent,
   type TimelinePointEvent,
@@ -87,10 +87,50 @@ const COMPACT_BAND_SUB_EVENTS = {
 
 type Tab = "full" | "compact";
 
+let nextId = 100;
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("compact");
   const [sectionGranularity, setSectionGranularity] = useState<SectionGranularity>("year");
   const [allExpanded, setAllExpanded] = useState(false);
+  const [userEvents, setUserEvents] = useState<TimelinePointEvent[]>([]);
+  const [userBands, setUserBands] = useState<TimelineBandEvent[]>([]);
+
+  const compactEvents = useMemo(() => [...COMPACT_EVENTS, ...userEvents], [userEvents]);
+  const compactBands = useMemo(() => [...COMPACT_BANDS, ...userBands], [userBands]);
+
+  const handleAddEvent = useCallback((data: {
+    title: string; date: Date; endDate?: Date; description?: string; lane?: string; tags?: string[]; color?: string; type: "event" | "band";
+  }) => {
+    const id = `user-${nextId++}`;
+    if (data.type === "band" && data.endDate) {
+      setUserBands((prev) => [...prev, {
+        id,
+        title: data.title,
+        start: data.date.toISOString().slice(0, 10),
+        end: data.endDate!.toISOString().slice(0, 10),
+        lane: data.lane,
+        color: data.color ?? "#2563eb",
+        tags: data.tags,
+        source: "user",
+      }]);
+    } else {
+      setUserEvents((prev) => [...prev, {
+        id,
+        title: data.title,
+        date: data.date.toISOString().slice(0, 10),
+        description: data.description,
+        lane: data.lane,
+        tags: data.tags,
+        source: "user",
+      }]);
+    }
+  }, []);
+
+  const handleDeleteEvent = useCallback((id: string) => {
+    setUserEvents((prev) => prev.filter((e) => e.id !== id));
+    setUserBands((prev) => prev.filter((b) => b.id !== id));
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 to-slate-200 p-4 text-slate-900">
@@ -123,8 +163,8 @@ export default function App() {
         <main className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_12px_28px_-22px_rgba(15,23,42,0.5)]">
           <xyflow.ReactFlowProvider>
             <TimelineFlow
-              events={COMPACT_EVENTS}
-              bands={COMPACT_BANDS}
+              events={compactEvents}
+              bands={compactBands}
               bandSubEvents={COMPACT_BAND_SUB_EVENTS}
               xyflow={xyflow}
               sectionGranularity="month"
@@ -132,6 +172,9 @@ export default function App() {
               compressionRatio={0.02}
               clusterGapDays={10}
               height="520px"
+              onAddEvent={handleAddEvent}
+              onDeleteEvent={handleDeleteEvent}
+              showFilters
             />
           </xyflow.ReactFlowProvider>
         </main>

@@ -98,6 +98,8 @@ export interface TimelineFlowResult {
   sections: Section[];
   /** Timestamp → X pixel mapping function */
   toX: (ts: number) => number;
+  /** X pixel → timestamp inverse mapping function */
+  fromX: (x: number) => number;
   minTs: number;
   maxTs: number;
   /** Y position of the timeline axis in pixels. */
@@ -247,6 +249,20 @@ export function buildTimelineFlow(
 
   const toX = (ts: number): number => left + (toVirtual(ts) / virtualDomain) * (right - left);
 
+  // Inverse: pixel X → timestamp
+  const fromX = (x: number): number => {
+    const vPos = ((x - left) / (right - left)) * virtualDomain;
+    // Find the segment containing this virtual position
+    for (const seg of segments) {
+      const segEnd = seg.vStart + seg.vSpan;
+      if (vPos <= segEnd || seg === segments[segments.length - 1]) {
+        const ratio = seg.vSpan === 0 ? 0 : (vPos - seg.vStart) / seg.vSpan;
+        return seg.start + Math.max(0, Math.min(1, ratio)) * (seg.end - seg.start);
+      }
+    }
+    return minTs;
+  };
+
   const rfNodes: FlowNode[] = [];
   const rfEdges: FlowEdge[] = [];
 
@@ -332,10 +348,10 @@ export function buildTimelineFlow(
     id: "axis",
     type: "axis",
     position: { x: left, y: axisY },
-    data: {},
+    data: { left, right, axisY },
     draggable: false,
     selectable: false,
-    style: { width: right - left, height: 6, zIndex: 5 },
+    style: { width: right - left, height: 6, zIndex: 5, pointerEvents: "all", overflow: "visible" },
   });
 
   // ─── Gap breaks ────────────────────────────────────────────────────────
@@ -403,9 +419,12 @@ export function buildTimelineFlow(
       type: "band",
       position: { x: x1, y: bandY },
       data: {
+        bandId: band.id,
         label: band.title,
         subtitle: band.lane ? `${band.lane} • ${startLabel} -> ${endLabel}` : `${startLabel} -> ${endLabel}`,
         color: band.color,
+        source: band.source,
+        tags: band.tags,
         subEvents: subEventPoints.map((sub) => ({
           ...sub,
           date: formatEventDate(sub.date),
@@ -546,12 +565,15 @@ export function buildTimelineFlow(
       data: isStack
         ? {
             side: placed.side,
-            events: cluster.events.map((e) => ({ id: e.id, date: formatEventDate(e.date), title: e.title, lane: e.lane })),
+            events: cluster.events.map((e) => ({ id: e.id, date: formatEventDate(e.date), title: e.title, lane: e.lane, tags: e.tags, source: e.source })),
           }
         : {
+            eventId: cluster.events[0].id,
             date: formatEventDate(cluster.events[0].date),
             title: cluster.events[0].title,
             lane: cluster.events[0].lane,
+            tags: cluster.events[0].tags,
+            source: cluster.events[0].source,
             side: placed.side,
           },
       draggable: true,
@@ -586,5 +608,5 @@ export function buildTimelineFlow(
     }
   }
 
-  return { nodes: rfNodes, edges: rfEdges, gaps, sections: mergedSections, toX, minTs, maxTs, axisY };
+  return { nodes: rfNodes, edges: rfEdges, gaps, sections: mergedSections, toX, fromX, minTs, maxTs, axisY };
 }
