@@ -1,6 +1,6 @@
 {
   "name": "react-chronoflow",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "ReactFlow-powered timeline with gap compression, event clustering, bands, and fully customizable nodes",
   "license": "MIT",
   "author": "Kevin <kevin@cuesit.com>",

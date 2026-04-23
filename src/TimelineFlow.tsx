@@ -77,6 +77,8 @@ export interface TimelineFlowProps {
   onEditEvent?: (id: string, updates: { title?: string; lane?: string; description?: string; tags?: string[] }) => void;
   /** Called when any node is clicked. Receives the node type, ID, and full data. */
   onNodeClick?: (nodeType: string, nodeId: string, data: Record<string, unknown>) => void;
+  /** Called when mouse enters/leaves a node. Use to show custom overlays, tooltips, etc. */
+  onNodeHover?: (nodeType: string, nodeId: string, data: Record<string, unknown>, hovered: boolean) => void;
 
   // ─── Filtering ─────────────────────────────────────────────────────────
   /** Show the built-in filter bar. Default: false */
@@ -138,6 +140,7 @@ export function TimelineFlow({
   onDeleteEvent: onDeleteEventProp,
   onEditEvent: onEditEventProp,
   onNodeClick: onNodeClickProp,
+  onNodeHover: onNodeHoverProp,
   showFilters = false,
   filterCategories = ["lane", "tag", "source"],
   activeFilters: activeFiltersProp,
@@ -770,10 +773,13 @@ export function TimelineFlow({
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClickProp ? (_: unknown, node: Record<string, unknown>) => {
-          const type = node.type as string;
-          const id = node.id as string;
-          const data = node.data as Record<string, unknown>;
-          onNodeClickProp(type, id, data);
+          onNodeClickProp(node.type as string, node.id as string, node.data as Record<string, unknown>);
+        } : undefined}
+        onNodeMouseEnter={onNodeHoverProp ? (_: unknown, node: Record<string, unknown>) => {
+          onNodeHoverProp(node.type as string, node.id as string, node.data as Record<string, unknown>, true);
+        } : undefined}
+        onNodeMouseLeave={onNodeHoverProp ? (_: unknown, node: Record<string, unknown>) => {
+          onNodeHoverProp(node.type as string, node.id as string, node.data as Record<string, unknown>, false);
         } : undefined}
         nodeTypes={mergedNodeTypes}
         fitView
