@@ -410,12 +410,14 @@ export function buildTimelineFlow(
   // ─── Bands ─────────────────────────────────────────────────────────────
 
   const sortedBands = [...parsedBands].sort((a, b) => a.startMs - b.startMs);
-  const bandRowLastX2: number[] = [];
   const bandHeight = 84;
-  const bandBaseY = axisY - 112;
-  const bandRowGap = 14;
-  let highestBandTopY = Number.POSITIVE_INFINITY;
-  const bandBounds: Array<{ x1: number; x2: number; y: number }> = [];
+  const bandGap = 14;
+  const bandOffsetFromAxis = 112;
+  const bandBounds: Array<{ x1: number; x2: number; y: number; side: "top" | "bottom" }> = [];
+
+  // Track occupied X ranges per row, separately for top and bottom
+  const topRowLastX2: number[] = [];
+  const bottomRowLastX2: number[] = [];
 
   sortedBands.forEach((band) => {
     const x1 = toX(band.startMs);
@@ -434,12 +436,42 @@ export function buildTimelineFlow(
       return { id: `band-handle-${band.id}-${point.id}`, ratio, ts: point.ts, pointId: point.id };
     });
 
-    let row = 0;
-    while (bandRowLastX2[row] !== undefined && x1 <= bandRowLastX2[row] + 24) row += 1;
-    bandRowLastX2[row] = x2;
-    const bandY = bandBaseY - row * (bandHeight + bandRowGap);
-    highestBandTopY = Math.min(highestBandTopY, bandY);
-    bandBounds.push({ x1, x2, y: bandY });
+    // Find the best row: try top first (row 0), then bottom (row 0), then top row 1, etc.
+    let bestSide: "top" | "bottom" = "top";
+    let bestRow = 0;
+    let placed = false;
+
+    for (let tryRow = 0; tryRow < 10 && !placed; tryRow++) {
+      // Try top
+      if (topRowLastX2[tryRow] === undefined || x1 > topRowLastX2[tryRow] + 24) {
+        bestSide = "top";
+        bestRow = tryRow;
+        topRowLastX2[tryRow] = x2;
+        placed = true;
+        break;
+      }
+      // Try bottom
+      if (bottomRowLastX2[tryRow] === undefined || x1 > bottomRowLastX2[tryRow] + 24) {
+        bestSide = "bottom";
+        bestRow = tryRow;
+        bottomRowLastX2[tryRow] = x2;
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) {
+      // Fallback: stack on top
+      bestSide = "top";
+      bestRow = topRowLastX2.length;
+      topRowLastX2[bestRow] = x2;
+    }
+
+    const bandY = bestSide === "top"
+      ? axisY - bandOffsetFromAxis - bestRow * (bandHeight + bandGap)
+      : axisY + bandOffsetFromAxis - bandHeight + bestRow * (bandHeight + bandGap);
+
+    bandBounds.push({ x1, x2, y: bandY, side: bestSide });
 
     rfNodes.push({
       id: `band-${band.id}`,
@@ -458,10 +490,11 @@ export function buildTimelineFlow(
           ratio: band.endMs === band.startMs ? 0.5 : (sub.ts - band.startMs) / (band.endMs - band.startMs),
         })),
         connectorHandles: connectorHandles.map((h) => ({ id: h.id, ratio: h.ratio })),
+        bandSide: bestSide,
       },
       draggable: false,
       selectable: false,
-      style: { width: Math.max(220, x2 - x1), height: bandHeight, zIndex: 20, pointerEvents: "all" },
+      style: { width: Math.max(220, x2 - x1), height: bandHeight, zIndex: 20, pointerEvents: "all", overflow: "visible" },
     });
 
     connectorHandles.forEach((handle) => {
@@ -471,7 +504,7 @@ export function buildTimelineFlow(
         id: markerId,
         type: "marker",
         position: { x: markerX - 6, y: axisY - 6 },
-        data: { side: "top" },
+        data: { side: bestSide },
         draggable: false,
         selectable: false,
         style: { width: 12, height: 12, zIndex: 25 },
@@ -548,29 +581,28 @@ export function buildTimelineFlow(
         return c.x1 <= card.x2 + 18 && c.x2 >= card.x1 - 18 && c.y1 <= card.y2 + 18 && c.y2 >= card.y1 - 18;
       });
 
-    // Check which bands overlap horizontally with this card's X range
-    // and compute the local top base Y from only those bands
-    const collidesWithBand = (x1: number, x2: number, y: number, h: number) =>
-      bandBounds.some((b) => x1 <= b.x2 + 12 && x2 >= b.x1 - 12 && y <= b.y + bandHeight + 12 && y + h >= b.y - 12);
-
-    const localBandTopY = (x1: number, x2: number) => {
-      let lowestBandY = Number.POSITIVE_INFINITY;
+    // Compute safe Y positions based on bands that overlap this card's X range
+    const localBaseY = (x1: number, x2: number, side: "top" | "bottom") => {
+      let topBandMinY = Number.POSITIVE_INFINITY;
+      let bottomBandMaxY = -Number.POSITIVE_INFINITY;
       for (const b of bandBounds) {
         if (x1 <= b.x2 + 12 && x2 >= b.x1 - 12) {
-          lowestBandY = Math.min(lowestBandY, b.y);
+          if (b.side === "top") topBandMinY = Math.min(topBandMinY, b.y);
+          else bottomBandMaxY = Math.max(bottomBandMaxY, b.y + bandHeight);
         }
       }
-      if (lowestBandY === Number.POSITIVE_INFINITY) return axisY - 146; // no bands at this X
-      return lowestBandY - cardH - 20;
+      if (side === "top") {
+        return topBandMinY === Number.POSITIVE_INFINITY ? axisY - 140 : topBandMinY - cardH - 20;
+      }
+      return bottomBandMaxY === -Number.POSITIVE_INFINITY ? axisY + 80 : bottomBandMaxY + 20;
     };
 
     for (let level = 0; level <= 6 && !placed; level += 1) {
       for (const side of preferredSides) {
-        // For top side, compute base Y from bands that actually overlap this card's X
         const approxX1 = markerX - cardW / 2;
         const approxX2 = markerX + cardW / 2;
-        const topBaseY = localBandTopY(approxX1, approxX2);
-        const y = side === "top" ? topBaseY - level * 78 : axisY + 62 + level * 78;
+        const baseY = localBaseY(approxX1, approxX2, side);
+        const y = side === "top" ? baseY - level * 78 : baseY + level * 78;
         const rowKey = `${side}:${level}`;
         const minLeftInRow = (rowLastRight.get(rowKey) ?? left - 24) + 24;
         for (const offset of offsetSteps) {
@@ -592,8 +624,8 @@ export function buildTimelineFlow(
 
     if (!placed) {
       const side = preferredSides[0];
-      const fallbackTopY = localBandTopY(markerX - cardW / 2, markerX + cardW / 2);
-      const y = side === "top" ? fallbackTopY - 7 * 78 : axisY + 62 + 7 * 78;
+      const fallbackY = localBaseY(markerX - cardW / 2, markerX + cardW / 2, side);
+      const y = side === "top" ? fallbackY - 7 * 78 : fallbackY + 7 * 78;
       const xCenter = Math.max(left + cardW / 2, Math.min(right - cardW / 2, markerX));
       placed = { side, xCenter, y };
       placedCards.push({ side, x1: xCenter - cardW / 2, x2: xCenter + cardW / 2, y1: y, y2: y + cardH });
@@ -618,13 +650,14 @@ export function buildTimelineFlow(
             date: formatEventDate(cluster.events[0].date),
             title: cluster.events[0].title,
             lane: cluster.events[0].lane,
+            description: cluster.events[0].description,
             tags: cluster.events[0].tags,
             source: cluster.events[0].source,
             side: placed.side,
           },
       draggable: true,
       selectable: true,
-      style: { width: cardW, zIndex: 30, ...(isStack ? { overflow: "visible" } : {}) },
+      style: { width: cardW, zIndex: 30, overflow: "visible" },
     });
 
     for (const event of cluster.events) {

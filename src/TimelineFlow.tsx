@@ -66,11 +66,17 @@ export interface TimelineFlowProps {
     tags?: string[];
     /** Band color (only for bands). */
     color?: string;
+    /** Sub-events within the band. */
+    subEvents?: Array<{ id: string; title: string; date: string }>;
     /** "event" for a point event, "band" if an end date was provided. */
     type: "event" | "band";
   }) => void;
   /** Called when the user deletes a user-created event or band (source === "user"). */
   onDeleteEvent?: (id: string) => void;
+  /** Called when the user edits a user-created event. Receives the event ID and updated fields. */
+  onEditEvent?: (id: string, updates: { title?: string; lane?: string; description?: string; tags?: string[] }) => void;
+  /** Called when any node is clicked. Receives the node type, ID, and full data. */
+  onNodeClick?: (nodeType: string, nodeId: string, data: Record<string, unknown>) => void;
 
   // ─── Filtering ─────────────────────────────────────────────────────────
   /** Show the built-in filter bar. Default: false */
@@ -130,6 +136,8 @@ export function TimelineFlow({
   onToggleGap: onToggleGapProp,
   onAddEvent: onAddEventProp,
   onDeleteEvent: onDeleteEventProp,
+  onEditEvent: onEditEventProp,
+  onNodeClick: onNodeClickProp,
   showFilters = false,
   filterCategories = ["lane", "tag", "source"],
   activeFilters: activeFiltersProp,
@@ -413,79 +421,163 @@ export function TimelineFlow({
     return () => window.removeEventListener("keydown", onKey);
   }, [addMode]);
 
-  // Build editing node (only when placed, not during ghost mode)
+  // Track live date edits — use ref to avoid re-renders, update nodes imperatively
+  const editDatesRef = useRef<{ startDate: string; endDate?: string } | null>(null);
+  const setNodesRef = useRef<((updater: (prev: unknown[]) => unknown[]) => void) | null>(null);
+  const setEdgesRef = useRef<((updater: (prev: unknown[]) => unknown[]) => void) | null>(null);
+
+  const handleEditChange = useCallback((info: { startDate: string; endDate?: string }) => {
+    editDatesRef.current = info;
+    const setN = setNodesRef.current;
+    const setE = setEdgesRef.current;
+    if (!setN || !setE) return;
+
+    // Imperatively update marker positions without triggering a full rebuild
+    setN((prev: unknown[]) => {
+      const nodes = prev as Array<Record<string, unknown>>;
+      return nodes.map((node) => {
+        if (node.id === "__add-event-marker__" && info.startDate) {
+          const x = graph.toX(Date.parse(`${info.startDate}T00:00:00Z`));
+          return { ...node, position: { x: x - 6, y: resolvedAxisY - 6 } };
+        }
+        if (node.id === "__add-event-marker-end__") {
+          if (!info.endDate) return node; // will be removed separately
+          const x = graph.toX(Date.parse(`${info.endDate}T00:00:00Z`));
+          return { ...node, position: { x: x - 6, y: resolvedAxisY - 6 } };
+        }
+        return node;
+      }) as never[];
+    });
+
+    // Add or remove the end marker + edge
+    const hasEnd = !!info.endDate;
+    setN((prev: unknown[]) => {
+      const nodes = prev as Array<Record<string, unknown>>;
+      const hasEndMarker = nodes.some((n) => n.id === "__add-event-marker-end__");
+      if (hasEnd && !hasEndMarker) {
+        const x = graph.toX(Date.parse(`${info.endDate!}T00:00:00Z`));
+        return [...nodes, {
+          id: "__add-event-marker-end__",
+          type: "marker",
+          position: { x: x - 6, y: resolvedAxisY - 6 },
+          data: { side: editPos ? (editPos.y < resolvedAxisY ? "top" : "bottom") : "top" },
+          draggable: false, selectable: false,
+          style: { width: 12, height: 12, zIndex: 25 },
+        }] as never[];
+      }
+      if (!hasEnd && hasEndMarker) {
+        return nodes.filter((n) => n.id !== "__add-event-marker-end__") as never[];
+      }
+      return prev as never[];
+    });
+
+    setE((prev: unknown[]) => {
+      const edges = prev as Array<Record<string, unknown>>;
+      const hasEndEdge = edges.some((e) => e.id === "__add-event-edge-end__");
+      if (hasEnd && !hasEndEdge) {
+        return [...edges, {
+          id: "__add-event-edge-end__",
+          source: "__add-event-marker-end__",
+          target: "__add-event-ghost__",
+          sourceHandle: "timeline-source",
+          targetHandle: "timeline-target",
+          type: "bezier",
+          animated: true,
+          style: { stroke: "#2563eb", strokeWidth: 2, strokeDasharray: "6 4" },
+        }] as never[];
+      }
+      if (!hasEnd && hasEndEdge) {
+        return edges.filter((e) => e.id !== "__add-event-edge-end__") as never[];
+      }
+      return prev as never[];
+    });
+  }, [graph, resolvedAxisY, editPos]);
+
+  // Build editing node — only rebuilt when entering edit mode, not on every date keystroke
   const addEventNodes = useMemo(() => {
     if (addMode !== "editing" || !editPos) return { nodes: [] as Record<string, unknown>[], edges: [] as Record<string, unknown>[] };
 
     const side = editPos.y < resolvedAxisY ? "top" : "bottom";
+    const startMarkerX = editPos.x;
+
     const ghostNode = {
       id: "__add-event-ghost__",
       type: "addEvent",
-      position: { x: editPos.x - 110, y: editPos.y - (side === "top" ? 80 : -10) },
+      position: { x: editPos.x - 140, y: editPos.y - (side === "top" ? 80 : -10) },
       data: {
         mode: "editing",
         dateLabel: editPos.date,
         side,
         startTs: editPos.ts,
-        onConfirm: (title: string, description: string, lane: string, endDate?: string, tags?: string[], color?: string) => {
-          const date = new Date(editPos.ts);
+        onEditChange: handleEditChange,
+        onConfirm: (title: string, description: string, lane: string, confirmedStartDate: string, endDate?: string, tags?: string[], color?: string, subEvts?: Array<{ id: string; title: string; date: string }>) => {
+          const date = new Date(`${confirmedStartDate}T00:00:00Z`);
           const cleanTags = tags?.filter(Boolean);
           if (endDate) {
-            onAddEventProp?.({ title, date, endDate: new Date(endDate), description: description || undefined, lane: lane || undefined, tags: cleanTags?.length ? cleanTags : undefined, color, type: "band" });
+            onAddEventProp?.({ title, date, endDate: new Date(`${endDate}T00:00:00Z`), description: description || undefined, lane: lane || undefined, tags: cleanTags?.length ? cleanTags : undefined, color, subEvents: subEvts, type: "band" });
           } else {
             onAddEventProp?.({ title, date, description: description || undefined, lane: lane || undefined, tags: cleanTags?.length ? cleanTags : undefined, type: "event" });
           }
           setAddMode(null);
           setEditPos(null);
+          editDatesRef.current = null;
         },
-        onCancel: () => { setAddMode(null); setEditPos(null); },
+        onCancel: () => { setAddMode(null); setEditPos(null); editDatesRef.current = null; },
       },
       draggable: true,
       selectable: false,
       zIndex: 50,
-      style: { width: 220, overflow: "visible" },
+      style: { width: 280, overflow: "visible" },
     };
 
-    const markerId = "__add-event-marker__";
-    const markerNode = {
-      id: markerId,
-      type: "marker",
-      position: { x: editPos.x - 6, y: resolvedAxisY - 6 },
-      data: { side },
-      draggable: false,
-      selectable: false,
-      style: { width: 12, height: 12, zIndex: 25 },
-    };
+    const startMarkerId = "__add-event-marker__";
 
-    const edge = {
-      id: "__add-event-edge__",
-      source: markerId,
-      target: "__add-event-ghost__",
-      sourceHandle: "timeline-source",
-      targetHandle: "timeline-target",
-      type: "bezier",
-      animated: true,
-      style: { stroke: "#d97706", strokeWidth: 2, strokeDasharray: "6 4" },
+    return {
+      nodes: [
+        ghostNode,
+        {
+          id: startMarkerId,
+          type: "marker",
+          position: { x: startMarkerX - 6, y: resolvedAxisY - 6 },
+          data: { side },
+          draggable: false, selectable: false,
+          style: { width: 12, height: 12, zIndex: 25 },
+        },
+      ],
+      edges: [
+        {
+          id: "__add-event-edge-start__",
+          source: startMarkerId,
+          target: "__add-event-ghost__",
+          sourceHandle: "timeline-source",
+          targetHandle: "timeline-target",
+          type: "bezier",
+          animated: true,
+          style: { stroke: "#d97706", strokeWidth: 2, strokeDasharray: "6 4" },
+        },
+      ],
     };
-
-    return { nodes: [ghostNode, markerNode], edges: [edge] };
-  }, [addMode, editPos, resolvedAxisY, onAddEventProp]);
+  }, [addMode, editPos, resolvedAxisY, onAddEventProp, handleEditChange]);
 
   // Inject callbacks into node data
   const nodesWithCallbacks = useMemo(
     () => graph.nodes.map((node) => {
       if (node.type === "gapBreak") return { ...node, data: { ...node.data, onToggle: handleToggleGap } };
       if (node.type === "axis" && onAddEventProp) return { ...node, data: { ...node.data, onAxisClick: handleAxisClick, addModeActive: addMode != null } };
-      // Inject delete callback for user-created events/bands
-      if (node.type === "event" && node.data.source === "user" && onDeleteEventProp) {
-        return { ...node, data: { ...node.data, onDelete: () => onDeleteEventProp(node.data.eventId as string) } };
+      // Inject edit + delete callbacks for user-created events
+      if (node.type === "event" && node.data.source === "user") {
+        const extra: Record<string, unknown> = {};
+        if (onDeleteEventProp) extra.onDelete = () => onDeleteEventProp(node.data.eventId as string);
+        if (onEditEventProp) extra.onEdit = (id: string, updates: Record<string, unknown>) => onEditEventProp(id, updates as { title?: string; lane?: string; description?: string; tags?: string[] });
+        if (Object.keys(extra).length) return { ...node, data: { ...node.data, ...extra } };
+        return node;
       }
       if (node.type === "band" && node.data.source === "user" && onDeleteEventProp) {
         return { ...node, data: { ...node.data, onDelete: () => onDeleteEventProp(node.data.bandId as string) } };
       }
       return node;
     }),
-    [graph.nodes, handleToggleGap, handleAxisClick, onAddEventProp, onDeleteEventProp, addMode],
+    [graph.nodes, handleToggleGap, handleAxisClick, onAddEventProp, onDeleteEventProp, onEditEventProp, addMode],
   );
 
   // Node types
@@ -507,6 +599,8 @@ export function TimelineFlow({
   // ReactFlow state
   const [nodes, setNodes, onNodesChange] = useNodesState(nodesWithCallbacks as unknown[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges as unknown[]);
+  setNodesRef.current = setNodes as unknown as (updater: (prev: unknown[]) => unknown[]) => void;
+  setEdgesRef.current = setEdges as unknown as (updater: (prev: unknown[]) => unknown[]) => void;
   const prevGapSig = useRef("");
   const graphAxisY = graph.axisY;
 
@@ -675,6 +769,12 @@ export function TimelineFlow({
         edges={edges}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeClick={onNodeClickProp ? (_: unknown, node: Record<string, unknown>) => {
+          const type = node.type as string;
+          const id = node.id as string;
+          const data = node.data as Record<string, unknown>;
+          onNodeClickProp(type, id, data);
+        } : undefined}
         nodeTypes={mergedNodeTypes}
         fitView
         fitViewOptions={{ padding: fitViewPadding, minZoom: 0.22 }}

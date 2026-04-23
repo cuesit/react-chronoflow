@@ -41,7 +41,7 @@ const S = {
   bandOverlay: { position: "absolute" as const, inset: 0, borderRadius: 16, transition: "background-color 0.2s" },
   bandLabel: { fontSize: 13, fontWeight: 800, lineHeight: 1.2, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.15)", fontFamily: "system-ui, -apple-system, sans-serif" },
   bandSubtitle: { marginTop: 4, fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.95)" },
-  bandSubEvent: { position: "absolute" as const, top: 44, borderRadius: 9999, border: "1px solid rgba(255,255,255,0.6)", background: "rgba(255,255,255,0.2)", padding: "2px 8px", fontSize: 10, fontWeight: 700, color: "#fff", transition: "all 0.2s" },
+  bandSubEvent: { position: "absolute" as const, top: 44, borderRadius: 9999, border: "1px solid rgba(255,255,255,0.6)", background: "rgba(255,255,255,0.2)", padding: "2px 8px", fontSize: 10, fontWeight: 700, color: "#fff", transition: "all 0.2s", whiteSpace: "nowrap" as const, maxWidth: "90%" },
   bandSubEventDate: { marginLeft: 4, fontWeight: 500, color: "rgba(255,255,255,0.7)" },
   // AddEvent form
   input: { width: "100%", borderRadius: 6, border: "1px solid", background: "#fff", padding: "4px 8px", fontSize: 13, fontWeight: 600, color: "#1e293b", outline: "none" },
@@ -73,33 +73,94 @@ export function EventNode({ data, className, renderContent }: EventNodeProps) {
   const date = typeof data.date === "string" ? data.date : "";
   const title = typeof data.title === "string" ? data.title : "";
   const lane = typeof data.lane === "string" ? data.lane : "General";
+  const description = typeof data.description === "string" ? data.description : "";
   const side = data.side === "bottom" ? "bottom" : "top";
   const tags = Array.isArray(data.tags) ? (data.tags as string[]) : [];
   const source = data.source as string | undefined;
+  const eventId = typeof data.eventId === "string" ? data.eventId : "";
   const onDelete = typeof data.onDelete === "function" ? data.onDelete : null;
+  const onEdit = typeof data.onEdit === "function" ? data.onEdit : null;
   const [hovered, setHovered] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [editTitle, setEditTitle] = React.useState(title);
+  const [editLane, setEditLane] = React.useState(lane === "General" ? "" : lane);
+  const [editDesc, setEditDesc] = React.useState(description);
+  const [editTags, setEditTags] = React.useState(tags.join(", "));
+  const editTitleRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => { if (editing && editTitleRef.current) editTitleRef.current.focus(); }, [editing]);
 
   if (renderContent) {
     return <div className={className}>{renderContent({ date, title, lane, side })}</div>;
   }
 
+  if (editing) {
+    const inputBorder = "#fde68a";
+    return (
+      <div style={{ ...S.eventCard, width: 220 }}>
+        <div style={{ marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", color: "#92400e" }}>EDIT EVENT</div>
+          <button type="button" onClick={() => setEditing(false)} style={{ background: "transparent", border: "none", color: "#94a3b8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, borderRadius: 9999 }}>
+            <svg width="10" height="10" viewBox="0 0 10 10"><line x1="2" y1="2" x2="8" y2="8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /><line x1="8" y1="2" x2="2" y2="8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+          </button>
+        </div>
+        <input ref={editTitleRef} type="text" placeholder="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={{ ...S.input, borderColor: inputBorder }} />
+        <input type="text" placeholder="Lane (optional)" value={editLane} onChange={(e) => setEditLane(e.target.value)} style={{ ...S.inputSmall, borderColor: inputBorder }} />
+        <textarea placeholder="Description (optional)" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} rows={2} style={{ ...S.textarea, borderColor: inputBorder }} />
+        <input type="text" placeholder="Tags (comma-separated)" value={editTags} onChange={(e) => setEditTags(e.target.value)} style={{ ...S.inputSmall, borderColor: inputBorder }} />
+        <button
+          type="button"
+          disabled={!editTitle.trim()}
+          onClick={() => {
+            const parsedTags = editTags.split(",").map((t) => t.trim()).filter(Boolean);
+            (onEdit as (id: string, updates: Record<string, unknown>) => void)(eventId, {
+              title: editTitle,
+              lane: editLane || undefined,
+              description: editDesc || undefined,
+              tags: parsedTags.length ? parsedTags : undefined,
+            });
+            setEditing(false);
+          }}
+          style={{ ...S.submitBtn, background: editTitle.trim() ? "#f59e0b" : "#d1d5db", opacity: editTitle.trim() ? 1 : 0.4 }}
+        >
+          Save
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={className}
+      className={className ? className : "rcf-event-card"}
       style={className ? undefined : S.eventCard}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {source === "user" && onDelete && (
-        <button
-          type="button"
-          onClick={() => (onDelete as () => void)()}
-          style={{ ...S.deleteBtn, ...(hovered ? S.deleteBtnVisible : S.deleteBtnHidden) }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#f87171"; e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.background = "#fef2f2"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#fecaca"; e.currentTarget.style.color = "#cbd5e1"; e.currentTarget.style.background = "#fff"; }}
-        >
-          <svg width="8" height="8" viewBox="0 0 8 8"><line x1="1" y1="1" x2="7" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><line x1="7" y1="1" x2="1" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
-        </button>
+      {source === "user" && (onEdit || onDelete) && (
+        <div style={{ position: "absolute", right: -8, top: -8, zIndex: 10, display: "flex", gap: 2, opacity: hovered ? 1 : 0, pointerEvents: hovered ? "auto" : "none", transition: "opacity 0.15s" }}>
+          {onEdit && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              style={{ ...S.deleteBtn, right: "auto", top: "auto", position: "relative", borderColor: "#bfdbfe" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#60a5fa"; e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.background = "#eff6ff"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#bfdbfe"; e.currentTarget.style.color = "#cbd5e1"; e.currentTarget.style.background = "#fff"; }}
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8"><path d="M5.5 1.5L6.5 2.5L3 6H2V5L5.5 1.5Z" fill="currentColor" /><line x1="4.5" y1="2.5" x2="5.5" y2="3.5" stroke="currentColor" strokeWidth="0.5" /></svg>
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => (onDelete as () => void)()}
+              style={{ ...S.deleteBtn, right: "auto", top: "auto", position: "relative" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#f87171"; e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.background = "#fef2f2"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#fecaca"; e.currentTarget.style.color = "#cbd5e1"; e.currentTarget.style.background = "#fff"; }}
+            >
+              <svg width="8" height="8" viewBox="0 0 8 8"><line x1="1" y1="1" x2="7" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><line x1="7" y1="1" x2="1" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+            </button>
+          )}
+        </div>
       )}
       <div style={S.eventDate}>{date}</div>
       <div style={S.eventTitle}>{title}</div>
@@ -218,8 +279,30 @@ export function EventStackNode({ data, className, fanLayout = "cascade", fanStep
   const maxStackPeek = Math.min(rest.length, 3);
   const fanPositions = computeFanPositions(rest.length, fanLayout, fanDirY as 1 | -1, fanStepY, fanStepX, fanRadius, fanStretchX);
 
+  // JS-managed expand state with debounced close so cursor can move between cards
+  const [expanded, setExpanded] = React.useState(false);
+  const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleEnter = React.useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    setExpanded(true);
+  }, []);
+
+  const handleLeave = React.useCallback(() => {
+    closeTimer.current = setTimeout(() => setExpanded(false), 250);
+  }, []);
+
+  React.useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+
+  const groupClass = expanded ? "rcf-stack-group rcf-stack-expanded" : "rcf-stack-group";
+
   return (
-    <div className="rcf-stack-group" style={{ position: "relative", overflow: "visible" }}>
+    <div
+      className={groupClass}
+      style={{ position: "relative", overflow: "visible" }}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+    >
       {rest.map((event, idx) => {
         const { x: fanX, y: fanY } = fanPositions[idx];
         const stackDepth = idx < maxStackPeek ? maxStackPeek - idx : 0;
@@ -233,13 +316,12 @@ export function EventStackNode({ data, className, fanLayout = "cascade", fanStep
               "--rcf-stack-x": `${stackDepth * 3}px`,
               "--rcf-stack-y": `${stackDepth * 2}px`,
               "--rcf-stack-opacity": `${idx < maxStackPeek ? 0.88 - idx * 0.16 : 0}`,
-              // Fan cards z-order: always below lead card (61) when collapsed.
-              // Relative ordering among fan cards controlled by fanReverse.
               "--rcf-fan-z": `${fanReverse ? 59 - idx : 50 + idx}`,
               position: "absolute", inset: 0,
               zIndex: fanReverse ? Math.max(0, maxStackPeek - idx) : idx,
               transitionDelay: `${(idx + 1) * 32}ms`,
             } as CSSProperties}
+            onMouseEnter={handleEnter}
           >
             <div className="rcf-fan-card-inner" style={S.fanCardInnerCollapsed}>
               <div className="rcf-fan-card-content" style={{ ...S.fanCardContent, opacity: 0 }}>
@@ -256,7 +338,7 @@ export function EventStackNode({ data, className, fanLayout = "cascade", fanStep
         );
       })}
 
-      <div className={className} style={className ? undefined : S.stackCard}>
+      <div className={className ? className : "rcf-event-card"} style={className ? undefined : S.stackCard}>
         {renderContent ? renderContent({ lead, count: events.length, side }) : (
           <>
             <div style={{ marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -405,19 +487,37 @@ export function AddEventNode({ data }: AddEventNodeProps) {
   const startTs = typeof data.startTs === "number" ? data.startTs : 0;
   const onConfirm = typeof data.onConfirm === "function" ? data.onConfirm : null;
   const onCancel = typeof data.onCancel === "function" ? data.onCancel : null;
+  const onEditChange = typeof data.onEditChange === "function" ? data.onEditChange : null;
 
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [lane, setLane] = React.useState("");
   const [tagsInput, setTagsInput] = React.useState("");
+  const [startDate, setStartDate] = React.useState(() => startTs ? new Date(startTs).toISOString().slice(0, 10) : "");
   const [hasEndDate, setHasEndDate] = React.useState(false);
   const [endDate, setEndDate] = React.useState("");
   const [bandColor, setBandColor] = React.useState("#2563eb");
+  const [subEvents, setSubEvents] = React.useState<Array<{ id: string; title: string; date: string }>>([]);
   const titleRef = React.useRef<HTMLInputElement>(null);
-  const startIso = startTs ? new Date(startTs).toISOString().slice(0, 10) : "";
+  let nextSubId = React.useRef(1);
 
   React.useEffect(() => { if (mode === "editing" && titleRef.current) titleRef.current.focus(); }, [mode]);
-  React.useEffect(() => { if (hasEndDate && !endDate && startTs) setEndDate(new Date(startTs + 30 * 864e5).toISOString().slice(0, 10)); }, [hasEndDate, endDate, startTs]);
+  React.useEffect(() => {
+    if (hasEndDate && !endDate && startDate) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + 30);
+      setEndDate(d.toISOString().slice(0, 10));
+    }
+  }, [hasEndDate, endDate, startDate]);
+
+  // Notify parent when dates change so it can update markers/edges
+  React.useEffect(() => {
+    if (mode !== "editing" || !onEditChange) return;
+    (onEditChange as (info: { startDate: string; endDate?: string }) => void)({
+      startDate,
+      endDate: hasEndDate && endDate ? endDate : undefined,
+    });
+  }, [mode, startDate, endDate, hasEndDate, onEditChange]);
 
   if (mode === "ghost") {
     return (
@@ -440,47 +540,95 @@ export function AddEventNode({ data }: AddEventNodeProps) {
   const accentText = isBand ? "#1e40af" : "#92400e";
   const inputBorder = isBand ? "#bfdbfe" : "#fde68a";
 
+  const addSubEvent = () => {
+    const id = `sub-${nextSubId.current++}`;
+    setSubEvents((prev) => [...prev, { id, title: "", date: "" }]);
+  };
+
+  const updateSubEvent = (id: string, field: "title" | "date", value: string) => {
+    setSubEvents((prev) => prev.map((s) => s.id === id ? { ...s, [field]: value } : s));
+  };
+
+  const removeSubEvent = (id: string) => {
+    setSubEvents((prev) => prev.filter((s) => s.id !== id));
+  };
+
   return (
-    <div style={{ width: 220, borderRadius: 16, border: `2px solid ${accentBorder}`, background: accentBg, padding: "10px 12px", boxShadow: "0 12px 28px -24px rgba(120,53,15,0.4)", fontFamily: "system-ui, -apple-system, sans-serif" }}>
+    <div style={{ width: isBand ? 280 : 220, borderRadius: 16, border: `2px solid ${accentBorder}`, background: accentBg, padding: "10px 12px", boxShadow: "0 12px 28px -24px rgba(120,53,15,0.4)", fontFamily: "system-ui, -apple-system, sans-serif", transition: "width 0.25s ease-out" }}>
+      {/* Header */}
       <div style={{ marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", color: accentText }}>
-          {dateLabel}{isBand ? ` → ${new Date(endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase()}` : ""}
+          {isBand ? "NEW BAND" : "NEW EVENT"}
         </div>
         <button type="button" onClick={() => onCancel && (onCancel as () => void)()} style={{ display: "flex", width: 20, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 9999, background: "transparent", border: "none", color: "#94a3b8", cursor: "pointer" }}>
           <svg width="10" height="10" viewBox="0 0 10 10"><line x1="2" y1="2" x2="8" y2="8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /><line x1="8" y1="2" x2="2" y2="8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
         </button>
       </div>
+
+      {/* Title */}
       <input ref={titleRef} type="text" placeholder={isBand ? "Band title" : "Event title"} value={title} onChange={(e) => setTitle(e.target.value)} style={{ ...S.input, borderColor: inputBorder }} />
+
+      {/* Start date */}
+      <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", whiteSpace: "nowrap" }}>Start:</span>
+        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ ...S.inputSmall, marginTop: 0, flex: 1, borderColor: inputBorder }} />
+      </div>
+
+      {/* End date toggle */}
+      <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+        <label style={{ display: "flex", cursor: "pointer", alignItems: "center", gap: 4, flex: 1 }}>
+          <input type="checkbox" checked={hasEndDate} onChange={(e) => { setHasEndDate(e.target.checked); if (!e.target.checked) setEndDate(""); }} style={{ accentColor: "#2563eb" }} />
+          <span style={{ fontSize: 10, fontWeight: 500, color: "#475569" }}>End date</span>
+        </label>
+        {hasEndDate && (
+          <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} style={{ ...S.inputSmall, marginTop: 0, flex: 1, borderColor: "#bfdbfe" }} />
+        )}
+      </div>
+
+      {/* Lane & description */}
       <input type="text" placeholder="Lane (optional)" value={lane} onChange={(e) => setLane(e.target.value)} style={{ ...S.inputSmall, borderColor: inputBorder }} />
       <textarea placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} style={{ ...S.textarea, borderColor: inputBorder }} />
       <input type="text" placeholder="Tags (comma-separated)" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} style={{ ...S.inputSmall, borderColor: inputBorder }} />
 
-      <div style={{ marginTop: 8, borderTop: "1px solid rgba(226,232,240,0.6)", paddingTop: 8 }}>
-        <label style={{ display: "flex", cursor: "pointer", alignItems: "center", gap: 8 }}>
-          <input type="checkbox" checked={hasEndDate} onChange={(e) => setHasEndDate(e.target.checked)} style={{ accentColor: "#2563eb" }} />
-          <span style={{ fontSize: 11, fontWeight: 500, color: "#475569" }}>Add end date (creates a band)</span>
-        </label>
-        {hasEndDate && (
-          <>
-            <input type="date" value={endDate} min={startIso} onChange={(e) => setEndDate(e.target.value)} style={{ ...S.inputSmall, borderColor: "#bfdbfe" }} />
-            <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ fontSize: 10, fontWeight: 500, color: "#94a3b8" }}>Color:</span>
-              {["#2563eb", "#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#ec4899"].map((c) => (
-                <button key={c} type="button" onClick={() => setBandColor(c)} style={{ width: 16, height: 16, borderRadius: 9999, border: bandColor === c ? "2px solid #334155" : "2px solid transparent", background: c, cursor: "pointer", transition: "border 0.15s", transform: bandColor === c ? "scale(1.1)" : "scale(1)" }} />
-              ))}
+      {/* Sub-events (only for bands) */}
+      {isBand && (
+        <div style={{ marginTop: 8, borderTop: "1px solid rgba(226,232,240,0.6)", paddingTop: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b" }}>Sub-events</span>
+            <button type="button" onClick={addSubEvent} style={{ fontSize: 10, fontWeight: 600, color: "#2563eb", background: "transparent", border: "none", cursor: "pointer" }}>+ Add</button>
+          </div>
+          {subEvents.map((sub) => (
+            <div key={sub.id} style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+              <input type="text" placeholder="Title" value={sub.title} onChange={(e) => updateSubEvent(sub.id, "title", e.target.value)} style={{ ...S.inputSmall, marginTop: 0, flex: 1, borderColor: "#bfdbfe" }} />
+              <input type="date" value={sub.date} min={startDate} max={endDate} onChange={(e) => updateSubEvent(sub.id, "date", e.target.value)} style={{ ...S.inputSmall, marginTop: 0, flex: 1, borderColor: "#bfdbfe" }} />
+              <button type="button" onClick={() => removeSubEvent(sub.id)} style={{ background: "transparent", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>x</button>
             </div>
-          </>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
+      {/* Color picker (bands only) */}
+      {isBand && (
+        <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 10, fontWeight: 500, color: "#94a3b8" }}>Color:</span>
+          {["#2563eb", "#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#ec4899"].map((c) => (
+            <button key={c} type="button" onClick={() => setBandColor(c)} style={{ width: 16, height: 16, borderRadius: 9999, border: bandColor === c ? "2px solid #334155" : "2px solid transparent", background: c, cursor: "pointer", transition: "border 0.15s", transform: bandColor === c ? "scale(1.1)" : "scale(1)" }} />
+          ))}
+        </div>
+      )}
+
+      {/* Submit */}
       <button
         type="button"
-        disabled={!title.trim()}
+        disabled={!title.trim() || !startDate}
         onClick={() => {
           const tags = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
-          onConfirm && (onConfirm as (t: string, d: string, l: string, e?: string, tags?: string[], color?: string) => void)(title, description, lane, isBand ? endDate : undefined, tags.length ? tags : undefined, isBand ? bandColor : undefined);
+          const subs = subEvents.filter((s) => s.title && s.date);
+          onConfirm && (onConfirm as (t: string, d: string, l: string, startDate: string, e?: string, tags?: string[], color?: string, subs?: Array<{ id: string; title: string; date: string }>) => void)(
+            title, description, lane, startDate, isBand ? endDate : undefined, tags.length ? tags : undefined, isBand ? bandColor : undefined, subs.length ? subs : undefined
+          );
         }}
-        style={{ ...S.submitBtn, background: title.trim() ? accent : "#d1d5db", opacity: title.trim() ? 1 : 0.4 }}
+        style={{ ...S.submitBtn, background: (title.trim() && startDate) ? accent : "#d1d5db", opacity: (title.trim() && startDate) ? 1 : 0.4 }}
       >
         {isBand ? "Add Band" : "Add Event"}
       </button>
@@ -509,13 +657,13 @@ export function BandNode({ data, className, renderContent }: BandNodeProps) {
   const subEvents = Array.isArray(data.subEvents) ? (data.subEvents as Array<{ id: string; title: string; date: string; ratio: number; ts: number }>) : [];
 
   if (renderContent) {
-    return <div className={className} style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", backgroundColor: toRgba(color, 0.75) }}>{renderContent({ label, subtitle, color, subEvents })}</div>;
+    return <div className={className} style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", overflow: "visible", backgroundColor: toRgba(color, 0.75) }}>{renderContent({ label, subtitle, color, subEvents })}</div>;
   }
 
   return (
     <div
       className={className}
-      style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", backgroundColor: toRgba(color, 0.75), boxShadow: "0 10px 24px -20px rgba(15,23,42,0.45)", transition: "all 0.2s ease-out", fontFamily: "system-ui, -apple-system, sans-serif" }}
+      style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", overflow: "visible", backgroundColor: toRgba(color, 0.75), boxShadow: "0 10px 24px -20px rgba(15,23,42,0.45)", transition: "all 0.2s ease-out", fontFamily: "system-ui, -apple-system, sans-serif" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -535,7 +683,7 @@ export function BandNode({ data, className, renderContent }: BandNodeProps) {
         <div style={S.bandLabel}>{label}</div>
         {subtitle ? <div style={S.bandSubtitle}>{subtitle}</div> : null}
         {subEvents.map((sub) => (
-          <span key={sub.id} style={{ ...S.bandSubEvent, left: `${Math.max(0, Math.min(1, sub.ratio)) * 100}%`, transform: "translateX(-50%)" }}>
+          <span key={sub.id} style={{ ...S.bandSubEvent, left: `clamp(0%, ${sub.ratio * 100}%, 100%)`, transform: `translateX(${sub.ratio < 0.15 ? "0%" : sub.ratio > 0.85 ? "-100%" : "-50%"})` }}>
             {sub.title}<span style={S.bandSubEventDate}>{sub.date}</span>
           </span>
         ))}
@@ -567,7 +715,11 @@ export function createDefaultNodeTypes(Handle: React.ComponentType<any>, overrid
   };
   const makeBand = (rfProps: { data: BaseNodeData }) => {
     const handles = Array.isArray(rfProps.data.connectorHandles) ? (rfProps.data.connectorHandles as Array<{ id: string; ratio: number }>) : [];
-    return <>{handles.map((h) => <H key={h.id} id={h.id} type="target" position="bottom" style={{ left: `${Math.max(0, Math.min(1, h.ratio)) * 100}%`, ...HANDLE_STYLE, transform: "translate(-50%, 50%)" }} />)}<BandNode {...(overrides?.band ?? {})} data={rfProps.data} /></>;
+    const bandSide = rfProps.data.bandSide === "bottom" ? "bottom" : "top";
+    // Top bands: edge comes from axis below → handle on bottom edge
+    // Bottom bands: edge comes from axis above → handle on top edge
+    const handlePos = bandSide === "top" ? "bottom" : "top";
+    return <>{handles.map((h) => <H key={h.id} id={h.id} type="target" position={handlePos} style={{ left: `${Math.max(0, Math.min(1, h.ratio)) * 100}%`, ...HANDLE_STYLE, transform: "translate(-50%, 0)" }} />)}<BandNode {...(overrides?.band ?? {})} data={rfProps.data} /></>;
   };
   const makeGap = (rfProps: { data: BaseNodeData }) => <GapBreakNode {...(overrides?.gapBreak ?? {})} data={rfProps.data} />;
   const makeDivider = (rfProps: { data: BaseNodeData }) => <SectionDividerNode {...(overrides?.sectionDivider ?? {})} data={rfProps.data} />;

@@ -96,12 +96,14 @@ export default function App() {
   const [allExpanded, setAllExpanded] = useState(false);
   const [userEvents, setUserEvents] = useState<TimelinePointEvent[]>([]);
   const [userBands, setUserBands] = useState<TimelineBandEvent[]>([]);
+  const [userBandSubEvents, setUserBandSubEvents] = useState<Record<string, Array<{ id: string; title: string; date: string }>>>({});
 
   const compactEvents = useMemo(() => [...COMPACT_EVENTS, ...userEvents], [userEvents]);
   const compactBands = useMemo(() => [...COMPACT_BANDS, ...userBands], [userBands]);
+  const allBandSubEvents = useMemo(() => ({ ...COMPACT_BAND_SUB_EVENTS, ...userBandSubEvents }), [userBandSubEvents]);
 
   const handleAddEvent = useCallback((data: {
-    title: string; date: Date; endDate?: Date; description?: string; lane?: string; tags?: string[]; color?: string; type: "event" | "band";
+    title: string; date: Date; endDate?: Date; description?: string; lane?: string; tags?: string[]; color?: string; subEvents?: Array<{ id: string; title: string; date: string }>; type: "event" | "band";
   }) => {
     const id = `user-${nextId++}`;
     if (data.type === "band" && data.endDate) {
@@ -115,6 +117,9 @@ export default function App() {
         tags: data.tags,
         source: "user",
       }]);
+      if (data.subEvents?.length) {
+        setUserBandSubEvents((prev) => ({ ...prev, [id]: data.subEvents! }));
+      }
     } else {
       setUserEvents((prev) => [...prev, {
         id,
@@ -131,6 +136,15 @@ export default function App() {
   const handleDeleteEvent = useCallback((id: string) => {
     setUserEvents((prev) => prev.filter((e) => e.id !== id));
     setUserBands((prev) => prev.filter((b) => b.id !== id));
+    setUserBandSubEvents((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  const handleEditEvent = useCallback((id: string, updates: { title?: string; lane?: string; description?: string; tags?: string[] }) => {
+    setUserEvents((prev) => prev.map((e) => e.id === id ? { ...e, ...updates } : e));
   }, []);
 
   return (
@@ -166,7 +180,7 @@ export default function App() {
             <TimelineFlow
               events={compactEvents}
               bands={compactBands}
-              bandSubEvents={COMPACT_BAND_SUB_EVENTS}
+              bandSubEvents={allBandSubEvents}
               xyflow={xyflow}
               sectionGranularity="month"
               maxGapDays={45}
@@ -176,6 +190,7 @@ export default function App() {
               height="520px"
               onAddEvent={handleAddEvent}
               onDeleteEvent={handleDeleteEvent}
+              onEditEvent={handleEditEvent}
               showFilters
             />
           </xyflow.ReactFlowProvider>
