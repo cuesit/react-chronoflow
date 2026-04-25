@@ -28,6 +28,7 @@ export {
   MarkerNode,
   BandNode,
   AddEventNode,
+  TodayMarkerNode,
   createDefaultNodeTypes,
 } from "./reactflow-nodes";
 export type {
@@ -41,6 +42,7 @@ export type {
   MarkerNodeProps,
   BandNodeProps,
   AddEventNodeProps,
+  TodayMarkerNodeProps,
 } from "./reactflow-nodes";
 
 // ─── Domain graph → ReactFlow adapter ────────────────────────────────────────

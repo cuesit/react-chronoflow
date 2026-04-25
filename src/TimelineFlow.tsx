@@ -15,6 +15,8 @@ import type {
 import type { TimelineBandEvent, TimelinePointEvent, TimelineDate } from "./types";
 import type { ReactNode } from "react";
 
+type NodeSizeMap = Record<string, { width: number; height: number }>;
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 export interface TimelineFlowProps {
@@ -24,7 +26,10 @@ export interface TimelineFlowProps {
   // ─── Layout options ────────────────────────────────────────────────────
   maxGapDays?: number;
   compressionRatio?: number;
+  minCompressedGapWidth?: number;
   clusterGapDays?: number;
+  /** How strongly event nodes resist horizontal drift from their marker. 0 = loose, 1 = stiff. Default: 0.9 */
+  edgeStiffness?: number;
   sectionGranularity?: "year" | "month";
   allExpanded?: boolean;
   left?: number;
@@ -53,6 +58,12 @@ export interface TimelineFlowProps {
   maxZoom?: number;
   fitViewPadding?: number;
   fitViewDuration?: number;
+  /** Zoom into a node when it's clicked. Default: true */
+  zoomOnNodeClick?: boolean;
+  /** Zoom level when zooming into a clicked node. Default: 1 */
+  zoomOnNodeClickZoom?: number;
+  /** Duration (ms) of the zoom animation on node click. Default: 400 */
+  zoomOnNodeClickDuration?: number;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────
   onToggleGap?: (gapKey: string) => void;
@@ -79,6 +90,8 @@ export interface TimelineFlowProps {
   onNodeClick?: (nodeType: string, nodeId: string, data: Record<string, unknown>) => void;
   /** Called when mouse enters/leaves a node. Use to show custom overlays, tooltips, etc. */
   onNodeHover?: (nodeType: string, nodeId: string, data: Record<string, unknown>, hovered: boolean) => void;
+  /** Render a custom overlay when a node is hovered. Rendered inside the node's DOM — no flash. */
+  renderNodeOverlay?: (props: { nodeType: string; nodeId: string; data: Record<string, unknown> }) => ReactNode;
 
   // ─── Filtering ─────────────────────────────────────────────────────────
   /** Show the built-in filter bar. Default: false */
@@ -113,7 +126,9 @@ export function TimelineFlow({
   bands = [],
   maxGapDays,
   compressionRatio,
+  minCompressedGapWidth,
   clusterGapDays,
+  edgeStiffness,
   sectionGranularity,
   allExpanded,
   left,
@@ -135,12 +150,16 @@ export function TimelineFlow({
   maxZoom = 1.6,
   fitViewPadding = 0.12,
   fitViewDuration = 400,
+  zoomOnNodeClick = true,
+  zoomOnNodeClickZoom = 1,
+  zoomOnNodeClickDuration = 400,
   onToggleGap: onToggleGapProp,
   onAddEvent: onAddEventProp,
   onDeleteEvent: onDeleteEventProp,
   onEditEvent: onEditEventProp,
   onNodeClick: onNodeClickProp,
   onNodeHover: onNodeHoverProp,
+  renderNodeOverlay,
   showFilters = false,
   filterCategories = ["lane", "tag", "source"],
   activeFilters: activeFiltersProp,
@@ -159,8 +178,8 @@ export function TimelineFlow({
     useReactFlow,
   } = xyflow;
 
-  // ReactFlow instance (for screenToFlowPosition, fitView)
-  let rfInstance: { fitView?: (opts?: Record<string, unknown>) => void; screenToFlowPosition?: (pos: { x: number; y: number }) => { x: number; y: number } } | null = null;
+  // ReactFlow instance (for screenToFlowPosition, fitView, setCenter)
+  let rfInstance: { fitView?: (opts?: Record<string, unknown>) => void; setCenter?: (x: number, y: number, opts?: Record<string, unknown>) => void; screenToFlowPosition?: (pos: { x: number; y: number }) => { x: number; y: number } } | null = null;
   try {
     if (useReactFlow) rfInstance = useReactFlow();
   } catch { /* not in provider */ }
@@ -232,6 +251,7 @@ export function TimelineFlow({
 
   // Gap state
   const [expandedGapKeys, setExpandedGapKeys] = useState<Set<string>>(new Set());
+  const [nodeSizes, setNodeSizes] = useState<NodeSizeMap>({});
 
   const handleToggleGap = useCallback(
     (gapKey: string) => {
@@ -248,8 +268,8 @@ export function TimelineFlow({
 
   // Build layout
   const buildOptions: TimelineFlowOptions = useMemo(
-    () => ({ maxGapDays, compressionRatio, clusterGapDays, sectionGranularity, expandedGapKeys, allExpanded, left, right, axisY, bandSubEvents }),
-    [maxGapDays, compressionRatio, clusterGapDays, sectionGranularity, expandedGapKeys, allExpanded, left, right, axisY, bandSubEvents],
+    () => ({ maxGapDays, compressionRatio, minCompressedGapWidth, clusterGapDays, edgeStiffness, sectionGranularity, expandedGapKeys, allExpanded, left, right, axisY, bandSubEvents, nodeSizes }),
+    [maxGapDays, compressionRatio, minCompressedGapWidth, clusterGapDays, edgeStiffness, sectionGranularity, expandedGapKeys, allExpanded, left, right, axisY, bandSubEvents, nodeSizes],
   );
 
   const graph = useMemo(() => buildTimelineFlow(filteredEvents, filteredBands, buildOptions), [filteredEvents, filteredBands, buildOptions]);
@@ -484,7 +504,7 @@ export function TimelineFlow({
           target: "__add-event-ghost__",
           sourceHandle: "timeline-source",
           targetHandle: "timeline-target",
-          type: "bezier",
+          type: "default",
           animated: true,
           style: { stroke: "#2563eb", strokeWidth: 2, strokeDasharray: "6 4" },
         }] as never[];
@@ -554,7 +574,7 @@ export function TimelineFlow({
           target: "__add-event-ghost__",
           sourceHandle: "timeline-source",
           targetHandle: "timeline-target",
-          type: "bezier",
+          type: "default",
           animated: true,
           style: { stroke: "#d97706", strokeWidth: 2, strokeDasharray: "6 4" },
         },
@@ -565,22 +585,30 @@ export function TimelineFlow({
   // Inject callbacks into node data
   const nodesWithCallbacks = useMemo(
     () => graph.nodes.map((node) => {
+      const extra: Record<string, unknown> = {};
+
       if (node.type === "gapBreak") return { ...node, data: { ...node.data, onToggle: handleToggleGap } };
       if (node.type === "axis" && onAddEventProp) return { ...node, data: { ...node.data, onAxisClick: handleAxisClick, addModeActive: addMode != null } };
+
+      // Inject renderNodeOverlay for event/eventStack/band nodes
+      if (renderNodeOverlay && (node.type === "event" || node.type === "eventStack" || node.type === "band")) {
+        extra.renderNodeOverlay = renderNodeOverlay;
+        extra.nodeType = node.type;
+        extra.nodeId = node.id;
+      }
+
       // Inject edit + delete callbacks for user-created events
       if (node.type === "event" && node.data.source === "user") {
-        const extra: Record<string, unknown> = {};
         if (onDeleteEventProp) extra.onDelete = () => onDeleteEventProp(node.data.eventId as string);
         if (onEditEventProp) extra.onEdit = (id: string, updates: Record<string, unknown>) => onEditEventProp(id, updates as { title?: string; lane?: string; description?: string; tags?: string[] });
-        if (Object.keys(extra).length) return { ...node, data: { ...node.data, ...extra } };
-        return node;
       }
       if (node.type === "band" && node.data.source === "user" && onDeleteEventProp) {
-        return { ...node, data: { ...node.data, onDelete: () => onDeleteEventProp(node.data.bandId as string) } };
+        extra.onDelete = () => onDeleteEventProp(node.data.bandId as string);
       }
-      return node;
+
+      return Object.keys(extra).length ? { ...node, data: { ...node.data, ...extra } } : node;
     }),
-    [graph.nodes, handleToggleGap, handleAxisClick, onAddEventProp, onDeleteEventProp, onEditEventProp, addMode],
+    [graph.nodes, handleToggleGap, handleAxisClick, onAddEventProp, onDeleteEventProp, onEditEventProp, renderNodeOverlay, addMode],
   );
 
   // Node types
@@ -704,6 +732,56 @@ export function TimelineFlow({
     prevGapSig.current = sig;
   }, [nodesWithCallbacks, graph.edges, graph.gaps, addEventNodes, addMode, editPos, setNodes, setEdges, fitView, fitViewPadding, fitViewDuration]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
+
+    const observed = new Map<Element, string>();
+    const observer = new ResizeObserver((entries) => {
+      setNodeSizes((prev) => {
+        let changed = false;
+        const next: NodeSizeMap = { ...prev };
+
+        for (const entry of entries) {
+          const id = observed.get(entry.target);
+          if (!id) continue;
+
+          const width = Math.round(entry.contentRect.width);
+          const height = Math.round(entry.contentRect.height);
+          if (width <= 0 || height <= 0) continue;
+
+          const prior = next[id];
+          if (!prior || Math.abs(prior.width - width) > 1 || Math.abs(prior.height - height) > 1) {
+            next[id] = { width, height };
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    });
+
+    const observeRenderedNodes = () => {
+      const elements = container.querySelectorAll(".react-flow__node-event, .react-flow__node-eventStack");
+      elements.forEach((el) => {
+        if (observed.has(el)) return;
+        const id = el.getAttribute("data-id");
+        if (!id) return;
+        observed.set(el, id);
+        observer.observe(el);
+      });
+    };
+
+    observeRenderedNodes();
+    const mutationObserver = new MutationObserver(observeRenderedNodes);
+    mutationObserver.observe(container, { childList: true, subtree: true });
+
+    return () => {
+      mutationObserver.disconnect();
+      observer.disconnect();
+    };
+  }, [nodesWithCallbacks]);
+
   const dotsVariant = BackgroundVariant ? (BackgroundVariant as Record<string, string>).Dots : "dots";
 
   return (
@@ -772,9 +850,24 @@ export function TimelineFlow({
         edges={edges}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClickProp ? (_: unknown, node: Record<string, unknown>) => {
-          onNodeClickProp(node.type as string, node.id as string, node.data as Record<string, unknown>);
-        } : undefined}
+        onNodeClick={(_: unknown, node: Record<string, unknown>) => {
+          console.log("[TimelineFlow] onNodeClick fired", { id: node.id, type: node.type, position: node.position, style: node.style, hasSetCenter: !!rfInstance?.setCenter, zoomOnNodeClick });
+          if (onNodeClickProp) {
+            onNodeClickProp(node.type as string, node.id as string, node.data as Record<string, unknown>);
+          }
+          if (zoomOnNodeClick && rfInstance?.setCenter) {
+            const pos = node.position as { x: number; y: number } | undefined;
+            const style = node.style as { width?: number | string; height?: number | string } | undefined;
+            const w = typeof style?.width === "number" ? style.width : 160;
+            const h = typeof style?.height === "number" ? style.height : 80;
+            if (pos) {
+              rfInstance.setCenter(pos.x + w / 2, pos.y + h / 2, {
+                zoom: zoomOnNodeClickZoom,
+                duration: zoomOnNodeClickDuration,
+              });
+            }
+          }
+        }}
         onNodeMouseEnter={onNodeHoverProp ? (_: unknown, node: Record<string, unknown>) => {
           onNodeHoverProp(node.type as string, node.id as string, node.data as Record<string, unknown>, true);
         } : undefined}
@@ -804,6 +897,7 @@ export function TimelineFlow({
                   if (node.type === "sectionLabel") return "#64748b";
                   if (node.type === "marker") return "#1e293b";
                   if (node.type === "gapBreak") return "#94a3b8";
+                  if (node.type === "todayMarker") return "#ef4444";
                   return "#f59e0b";
                 }}
                 nodeStrokeColor="#0f172a"

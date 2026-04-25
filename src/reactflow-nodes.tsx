@@ -9,7 +9,7 @@ const HANDLE_STYLE = { width: 8, height: 8, border: "none", background: "transpa
 
 const S = {
   // Event card
-  eventCard: { borderRadius: 16, border: "1px solid #fbbf24", background: "#fffbeb", padding: "8px 12px", boxShadow: "0 12px 28px -24px rgba(15,23,42,0.55)", transition: "all 0.2s ease-out", position: "relative" as const, fontFamily: "system-ui, -apple-system, sans-serif" },
+  eventCard: { borderRadius: 16, border: "1px solid #fbbf24", background: "rgba(255,251,235,0.88)", padding: "8px 12px", boxShadow: "0 12px 28px -24px rgba(15,23,42,0.55)", transition: "all 0.2s ease-out", position: "relative" as const, fontFamily: "system-ui, -apple-system, sans-serif" },
   eventDate: { fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", color: "#92400e" },
   eventTitle: { marginTop: 4, fontSize: 14, fontWeight: 600, lineHeight: 1.2, color: "#1e293b" },
   eventLaneRow: { marginTop: 8, display: "flex", flexWrap: "wrap" as const, alignItems: "center", gap: 4 },
@@ -19,11 +19,11 @@ const S = {
   deleteBtnHidden: { opacity: 0, pointerEvents: "none" as const },
   deleteBtnVisible: { opacity: 1, pointerEvents: "auto" as const },
   // Stack
-  stackCard: { borderRadius: 16, border: "1px solid #fbbf24", background: "#fffbeb", padding: "8px 12px", boxShadow: "0 12px 28px -24px rgba(15,23,42,0.55)", position: "relative" as const, zIndex: 61, fontFamily: "system-ui, -apple-system, sans-serif" },
+  stackCard: { borderRadius: 16, border: "1px solid #fbbf24", background: "rgba(255,251,235,0.88)", padding: "8px 12px", boxShadow: "0 12px 28px -24px rgba(15,23,42,0.55)", position: "relative" as const, zIndex: 61, fontFamily: "system-ui, -apple-system, sans-serif" },
   stackCountDot: { display: "inline-block", width: 12, height: 12, borderRadius: 2, border: "1px solid #f59e0b", background: "#fef3c7" },
   stackCountBadge: { borderRadius: 9999, border: "1px solid #fbbf24", background: "#fff", padding: "2px 8px", fontSize: 10, fontWeight: 700, color: "#92400e" },
   fanCardInnerCollapsed: { height: "100%", borderRadius: 16, border: "1px solid #fcd34d", background: "#fef3c7", transition: "all 0.3s cubic-bezier(0.34,1.56,0.64,1)" },
-  fanCardInnerExpanded: { height: "100%", borderRadius: 16, border: "1px solid #fbbf24", background: "#fffbeb", boxShadow: "0 12px 28px -24px rgba(15,23,42,0.55)", transition: "all 0.3s cubic-bezier(0.34,1.56,0.64,1)" },
+  fanCardInnerExpanded: { height: "100%", borderRadius: 16, border: "1px solid #fbbf24", background: "rgba(255,251,235,0.88)", boxShadow: "0 12px 28px -24px rgba(15,23,42,0.55)", transition: "all 0.3s cubic-bezier(0.34,1.56,0.64,1)" },
   fanCardContent: { padding: "8px 12px", transition: "opacity 0.2s" },
   // Gap break
   gapBtn: { display: "flex", width: "100%", height: "100%", cursor: "pointer", alignItems: "center", justifyContent: "center", borderRadius: 9999, border: "2px solid", transition: "all 0.2s" },
@@ -32,7 +32,7 @@ const S = {
   // Section
   dividerLine: { position: "absolute" as const, left: "50%", top: 0, height: "100%", width: 1, transform: "translateX(-50%)", background: "rgba(100,116,139,0.45)" },
   dividerGlow: { position: "absolute" as const, left: "50%", top: 0, height: "100%", width: 4, transform: "translateX(-50%)", background: "rgba(148,163,184,0.12)" },
-  sectionLabel: { borderRadius: 6, border: "1px solid #94a3b8", background: "#fff", padding: "4px 8px", textAlign: "center" as const, fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", color: "#334155", boxShadow: "0 1px 2px rgba(0,0,0,0.05)", fontFamily: "system-ui, -apple-system, sans-serif" },
+  sectionLabel: { borderRadius: 5, border: "1px solid rgba(148,163,184,0.75)", background: "rgba(255,255,255,0.82)", padding: "2px 7px", textAlign: "center" as const, fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", color: "#334155", boxShadow: "0 1px 2px rgba(15,23,42,0.04)", fontFamily: "system-ui, -apple-system, sans-serif" },
   // Axis
   axisLine: { height: 6, width: "100%", borderRadius: 9999, background: "rgba(37,99,235,0.95)", boxShadow: "0 0 0 6px rgba(37,99,235,0.16)" },
   // Marker
@@ -80,6 +80,9 @@ export function EventNode({ data, className, renderContent }: EventNodeProps) {
   const eventId = typeof data.eventId === "string" ? data.eventId : "";
   const onDelete = typeof data.onDelete === "function" ? data.onDelete : null;
   const onEdit = typeof data.onEdit === "function" ? data.onEdit : null;
+  const nodeOverlayFn = typeof data.renderNodeOverlay === "function" ? data.renderNodeOverlay as (props: { nodeType: string; nodeId: string; data: Record<string, unknown> }) => ReactNode : null;
+  const nodeType = typeof data.nodeType === "string" ? data.nodeType : "event";
+  const nodeId = typeof data.nodeId === "string" ? data.nodeId : eventId;
   const [hovered, setHovered] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [editTitle, setEditTitle] = React.useState(title);
@@ -168,6 +171,11 @@ export function EventNode({ data, className, renderContent }: EventNodeProps) {
         <div style={S.eventLane}>{lane}</div>
         {tags.map((tag) => <span key={tag} style={S.eventTag}>{tag}</span>)}
       </div>
+      {hovered && nodeOverlayFn && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: -4, transform: "translateY(100%)" }}>
+          {nodeOverlayFn({ nodeType, nodeId, data: data as Record<string, unknown> })}
+        </div>
+      )}
     </div>
   );
 }
@@ -357,6 +365,40 @@ export function EventStackNode({ data, className, fanLayout = "cascade", fanStep
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── GapBreakNode ────────────────────────────────────────────────────────────
+
+// ─── TodayMarkerNode ─────────────────────────────────────────────────────────
+
+export interface TodayMarkerNodeProps { data: BaseNodeData; className?: string; }
+
+export function TodayMarkerNode({ data, className }: TodayMarkerNodeProps) {
+  const label = typeof data.label === "string" ? data.label : "Today";
+  return (
+    <div className={className} style={className ? undefined : { position: "relative", width: "100%", height: "100%" }}>
+      {/* Vertical line */}
+      <div style={{ position: "absolute", left: "50%", top: 0, height: "100%", width: 2, transform: "translateX(-50%)", background: "#ef4444", opacity: 0.8 }} />
+      {/* Glow */}
+      <div style={{ position: "absolute", left: "50%", top: 0, height: "100%", width: 8, transform: "translateX(-50%)", background: "rgba(239,68,68,0.12)" }} />
+      {/* Label badge */}
+      <div style={{
+        position: "absolute", left: "50%", top: -24, transform: "translateX(-50%)",
+        background: "#ef4444", color: "#fff", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+        padding: "2px 8px", borderRadius: 6, whiteSpace: "nowrap",
+        boxShadow: "0 2px 6px rgba(239,68,68,0.3)",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+      }}>
+        {label}
+      </div>
+      {/* Triangle pointer */}
+      <div style={{
+        position: "absolute", left: "50%", top: -6, transform: "translateX(-50%)",
+        width: 0, height: 0,
+        borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "6px solid #ef4444",
+      }} />
     </div>
   );
 }
@@ -657,13 +699,13 @@ export function BandNode({ data, className, renderContent }: BandNodeProps) {
   const subEvents = Array.isArray(data.subEvents) ? (data.subEvents as Array<{ id: string; title: string; date: string; ratio: number; ts: number }>) : [];
 
   if (renderContent) {
-    return <div className={className} style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", overflow: "visible", backgroundColor: toRgba(color, 0.75) }}>{renderContent({ label, subtitle, color, subEvents })}</div>;
+    return <div className={className} style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", overflow: "visible", backgroundColor: toRgba(color, 0.68) }}>{renderContent({ label, subtitle, color, subEvents })}</div>;
   }
 
   return (
     <div
       className={className}
-      style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", overflow: "visible", backgroundColor: toRgba(color, 0.75), boxShadow: "0 10px 24px -20px rgba(15,23,42,0.45)", transition: "all 0.2s ease-out", fontFamily: "system-ui, -apple-system, sans-serif" }}
+      style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", overflow: "visible", backgroundColor: toRgba(color, 0.68), boxShadow: "0 10px 24px -20px rgba(15,23,42,0.45)", transition: "all 0.2s ease-out", fontFamily: "system-ui, -apple-system, sans-serif" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -725,10 +767,11 @@ export function createDefaultNodeTypes(Handle: React.ComponentType<any>, overrid
   const makeDivider = (rfProps: { data: BaseNodeData }) => <SectionDividerNode {...(overrides?.sectionDivider ?? {})} data={rfProps.data} />;
   const makeLabel = (rfProps: { data: BaseNodeData }) => <SectionLabelNode {...(overrides?.sectionLabel ?? {})} data={rfProps.data} />;
   const makeAxis = (rfProps: { data: BaseNodeData }) => <AxisNode {...(overrides?.axis ?? {})} data={rfProps.data} />;
+  const makeToday = (rfProps: { data: BaseNodeData }) => <TodayMarkerNode data={rfProps.data} />;
   const makeAddEvent = (rfProps: { data: BaseNodeData }) => {
     const side = rfProps.data.side === "bottom" ? "bottom" : "top";
     return <><H id="timeline-target" type="target" position={side === "top" ? "bottom" : "top"} style={HANDLE_STYLE} /><AddEventNode data={rfProps.data} /></>;
   };
 
-  return { event: makeEvent, eventStack: makeStack, gapBreak: makeGap, sectionDivider: makeDivider, sectionLabel: makeLabel, axis: makeAxis, marker: makeMarker, band: makeBand, addEvent: makeAddEvent };
+  return { event: makeEvent, eventStack: makeStack, gapBreak: makeGap, sectionDivider: makeDivider, sectionLabel: makeLabel, axis: makeAxis, marker: makeMarker, band: makeBand, addEvent: makeAddEvent, todayMarker: makeToday };
 }

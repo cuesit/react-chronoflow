@@ -84,14 +84,233 @@ const COMPACT_BAND_SUB_EVENTS = {
   ],
 };
 
+// ─── 100 Water St sample data ────────────────────────────────────────────────
+
+type WaterStBandEvent = TimelineBandEvent & { description: string };
+
+const WATER_ST_EVENTS: TimelinePointEvent[] = [
+  {
+    id: "water-evt-1",
+    title: "Land Court Plan No. 4012a",
+    date: "1912-08-22",
+    lane: "Title",
+    side: "top",
+    description: "Plan authored by Holyoke Water Power Company. Entity: land court plan #4012a.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-2",
+    title: "Land Patent Filing",
+    date: "1912-11-22",
+    lane: "Title",
+    side: "bottom",
+    description: "Filing date for Land Patent #4032. Entity: land patent #4032.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-3",
+    title: "Easement Agreement Recorded",
+    date: "1954-04-28",
+    lane: "Title",
+    side: "top",
+    description: "Easement recorded in Book 2307, Page 68. Entity: easement - 1954.",
+    tags: ["Encumbrance"],
+  },
+  {
+    id: "water-evt-4",
+    title: "Steam and Water Easement",
+    date: "1965-10-26",
+    lane: "Title",
+    side: "bottom",
+    description: "Easement recorded in Book 5218, Page 133. Entity: steam and water easement.",
+    tags: ["Encumbrance"],
+  },
+  {
+    id: "water-evt-5",
+    title: "Heritage Survey Service",
+    date: "1966-03-14",
+    lane: "Title",
+    side: "top",
+    description: "Survey services performed by Heritage Surveys. Entity: heritage surveys.",
+    tags: ["Organization"],
+  },
+  {
+    id: "water-evt-6",
+    title: "Notice to Prevent Easement",
+    date: "1977-11-01",
+    lane: "Title",
+    side: "bottom",
+    description: "Grantee: National Blank Book Company; recorded in Book 4530, Page 156. Entity: notice to prevent easement.",
+    tags: ["Encumbrance"],
+  },
+  {
+    id: "water-evt-7",
+    title: "Steam Line Easement",
+    date: "1996-03-21",
+    lane: "Title",
+    side: "top",
+    description: "Grantee: City of Holyoke Gas & Electric Department; recorded in Book 9424, Page 108. Entity: steam line easement.",
+    tags: ["Encumbrance"],
+  },
+  {
+    id: "water-evt-8",
+    title: "Flood Hazard Map Designation",
+    date: "2013-07-16",
+    lane: "Environmental",
+    side: "bottom",
+    description: "Property identified in Flood Hazard Zone X (Map 25013C0192E). Entity: flood hazard zone x.",
+    tags: ["Condition"],
+  },
+  {
+    id: "water-evt-9",
+    title: "Notice to Prevent Easements",
+    date: "2017-02-22",
+    lane: "Title",
+    side: "top",
+    description: "Grantee: Hampden Glazed Paper & Card Company; Book 2000, Page 156. Entity: notice to prevent easements.",
+    tags: ["Encumbrance"],
+  },
+  {
+    id: "water-evt-10",
+    title: "Title Commitment Issued",
+    date: "2021-08-23",
+    lane: "Title",
+    side: "bottom",
+    description: "Stewart Title Guaranty commitment #21000070011. Entity: title commitment #21000070011.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-11",
+    title: "ALTA/NSPS Land Title Survey",
+    date: "2021-08-27",
+    lane: "Title",
+    side: "top",
+    description: "Survey completed by Heritage Land Surveying & Engineering. Entity: alta/nsps land title survey.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-12",
+    title: "Historical Sale Date",
+    date: "2021-09-15",
+    lane: "Title",
+    side: "bottom",
+    description: "Sale date recorded in Basis of Design Questionnaire. Entity: Basis of Design Questionnaire.",
+    tags: ["Property"],
+  },
+  {
+    id: "water-evt-13",
+    title: "Fire Alarm System Inspection",
+    date: "2022-01-01",
+    lane: "Regulatory",
+    side: "top",
+    description: "Most recent pull-down fire alarm system inspection. Entity: fire alarm system.",
+    tags: ["Condition"],
+  },
+  {
+    id: "water-evt-14",
+    title: "Building Permit & Preliminary Drawing",
+    date: "2022-03-24",
+    lane: "Regulatory",
+    side: "bottom",
+    description: "Preliminary building permit #21005 and associated drawings issued. Entity: building permit #21005.",
+    tags: ["Permit"],
+  },
+  {
+    id: "water-evt-15",
+    title: "Estate Date of Death",
+    date: "2022-08-19",
+    lane: "Title",
+    side: "top",
+    description: "Date of death for Daniel Francis Griffin (Docket HD22P2487EA) relevant to title chain. Entity: estate of daniel francis griffin.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-16",
+    title: "Data Center Tax Exemption Effective",
+    date: "2025-01-08",
+    lane: "Regulatory",
+    side: "bottom",
+    description: "Massachusetts sales and use tax exemption for data center purchases. Entity: qualified data center purchases now eligible for massachusetts sales and use tax exemption.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-17",
+    title: "Zoning Ordinance Amendment",
+    date: "2026-01-20",
+    lane: "Regulatory",
+    side: "top",
+    description: "Amendment to prohibit data center use in Industrial General (IG) district. Entity: holyoke zoning ordinance.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-18",
+    title: "Zoning Verification Submission",
+    date: "2026-02-02",
+    lane: "Regulatory",
+    side: "bottom",
+    description: "Submission date for zoning verification request. Entity: zoning verification letter.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-19",
+    title: "Zoning Verification Letter Issued",
+    date: "2026-02-05",
+    lane: "Regulatory",
+    side: "top",
+    description: "Zoning designation confirmed as IG within AIOD overlay. Entity: zoning verification letter.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-20",
+    title: "PSA Effective Date",
+    date: "2026-03-01",
+    lane: "Deal Milestone",
+    side: "bottom",
+    description: "Effective date of the Purchase and Sale Agreement. Entity: purchase and sale agreement.",
+    tags: ["Document"],
+  },
+  {
+    id: "water-evt-21",
+    title: "Projected Closing Date",
+    date: "2026-07-01",
+    lane: "Deal Milestone",
+    side: "top",
+    description: "Estimated closing with buyer Chestnut River. Entity: chestnut river.",
+    tags: ["Organization"],
+  },
+];
+
+const WATER_ST_BANDS: WaterStBandEvent[] = [
+  {
+    id: "water-band-1",
+    title: "Inspection Period",
+    start: "2026-03-01",
+    end: "2026-05-30",
+    lane: "Deal Milestone",
+    color: "#0f766e",
+    description: "90-day initial inspection period with two 30-day extension options. Entity: purchase agreement.",
+    tags: ["Contract"],
+  },
+  {
+    id: "water-band-2",
+    title: "Senior Mortgage Interest-Only Period",
+    start: "2026-07-01",
+    end: "2027-07-01",
+    lane: "Financing",
+    color: "#7c3aed",
+    description: "12-month interest-only period within a 24-month total term. Entity: senior first mortgage.",
+    tags: ["Loan"],
+  },
+];
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
-type Tab = "full" | "compact";
+type Tab = "full" | "compact" | "water-st";
 
 let nextId = 100;
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("compact");
+  const [tab, setTab] = useState<Tab>("water-st");
   const [sectionGranularity, setSectionGranularity] = useState<SectionGranularity>("year");
   const [allExpanded, setAllExpanded] = useState(false);
   const [userEvents, setUserEvents] = useState<TimelinePointEvent[]>([]);
@@ -158,6 +377,13 @@ export default function App() {
           <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
             <button
               type="button"
+              onClick={() => setTab("water-st")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${tab === "water-st" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            >
+              100 Water St
+            </button>
+            <button
+              type="button"
               onClick={() => setTab("compact")}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${tab === "compact" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
             >
@@ -191,6 +417,25 @@ export default function App() {
               onAddEvent={handleAddEvent}
               onDeleteEvent={handleDeleteEvent}
               onEditEvent={handleEditEvent}
+              showFilters
+            />
+          </xyflow.ReactFlowProvider>
+        </main>
+      ) : tab === "water-st" ? (
+        <main className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_12px_28px_-22px_rgba(15,23,42,0.5)]">
+          <xyflow.ReactFlowProvider>
+            <TimelineFlow
+              events={WATER_ST_EVENTS}
+              bands={WATER_ST_BANDS}
+              bandSubEvents={{}}
+              xyflow={xyflow}
+              sectionGranularity="year"
+              maxGapDays={365}
+              compressionRatio={0.015}
+              clusterGapDays={14}
+              edgeStiffness={0.9}
+              eventStackNodeProps={{ fanLayout: "explosion" }}
+              height="680px"
               showFilters
             />
           </xyflow.ReactFlowProvider>

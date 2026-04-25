@@ -30,6 +30,26 @@ describe("buildTimelineFlow", () => {
     expect(result.gaps[0].compressed).toBe(true);
   });
 
+  it("keeps compressed gaps at a minimum rendered width", () => {
+    const events = [
+      { id: "1", title: "Early", date: "1900-01-01" },
+      { id: "2", title: "Middle", date: "2000-01-01" },
+      { id: "3", title: "Late", date: "2100-01-01" },
+    ];
+
+    const result = buildTimelineFlow(events, [], {
+      left: 0,
+      right: 1000,
+      maxGapDays: 30,
+      compressionRatio: 0.001,
+      minCompressedGapWidth: 80,
+    });
+
+    for (const gap of result.gaps.filter((g) => g.compressed)) {
+      expect(result.toX(gap.endTs) - result.toX(gap.startTs)).toBeGreaterThanOrEqual(79);
+    }
+  });
+
   it("creates bands with edges", () => {
     const events = [{ id: "1", title: "A", date: "2021-01-01" }];
     const bands = [{ id: "b1", title: "Phase 1", start: "2021-01-01", end: "2021-06-01" }];

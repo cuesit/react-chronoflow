@@ -9,8 +9,12 @@ export interface TimelineFlowOptions {
   maxGapDays?: number;
   /** How much to shrink compressed gaps (0 = fully collapsed, 1 = no compression). Default: 0.06 */
   compressionRatio?: number;
+  /** Minimum rendered width for a compressed gap in pixels. Default: 100 */
+  minCompressedGapWidth?: number;
   /** Events within this many days cluster into a stack node. Default: 18 */
   clusterGapDays?: number;
+  /** How strongly event nodes resist horizontal drift from their marker. 0 = loose, 1 = stiff. Default: 0.9 */
+  edgeStiffness?: number;
   /** Section granularity for dividers/labels. Default: "year" */
   sectionGranularity?: SectionGranularity;
   /** Gap keys that are forced expanded (overrides compression). */
@@ -25,6 +29,8 @@ export interface TimelineFlowOptions {
   axisY?: number;
   /** Sub-events keyed by band ID. */
   bandSubEvents?: Record<string, Array<{ id: string; title: string; date: TimelineDate }>>;
+  /** Measured ReactFlow node sizes keyed by node ID. Used to refine event placement after first render. */
+  nodeSizes?: Record<string, { width: number; height: number }>;
 }
 
 export interface GapInfo {
@@ -129,6 +135,43 @@ function formatSectionLabel(startMs: number, granularity: SectionGranularity): s
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }).toUpperCase();
 }
 
+function estimatePillRows(width: number, labels: string[]): number {
+  const innerWidth = Math.max(1, width - 24);
+  let rows = 1;
+  let rowWidth = 0;
+
+  for (const label of labels) {
+    const pillWidth = Math.min(innerWidth, Math.max(44, label.length * 6 + 18));
+    const nextWidth = rowWidth === 0 ? pillWidth : rowWidth + 4 + pillWidth;
+    if (nextWidth > innerWidth) {
+      rows += 1;
+      rowWidth = pillWidth;
+    } else {
+      rowWidth = nextWidth;
+    }
+  }
+
+  return rows;
+}
+
+function estimateEventCardHeight(event: Pick<TimelinePointEvent, "title" | "lane" | "tags">, width: number): number {
+  const innerWidth = Math.max(1, width - 24);
+  const titleCharsPerLine = Math.max(12, Math.floor(innerWidth / 7.2));
+  const titleLines = Math.max(1, Math.ceil(event.title.length / titleCharsPerLine));
+  const pillLabels = [event.lane, ...(event.tags ?? [])].filter((label): label is string => Boolean(label));
+  const pillRows = pillLabels.length > 0 ? estimatePillRows(width, pillLabels) : 0;
+
+  return 16 + 12 + 4 + titleLines * 17 + (pillRows > 0 ? 8 + pillRows * 24 : 0);
+}
+
+function estimateStackCardHeight(event: Pick<TimelinePointEvent, "title" | "lane">, width: number): number {
+  const innerWidth = Math.max(1, width - 24);
+  const titleCharsPerLine = Math.max(12, Math.floor(innerWidth / 7.2));
+  const titleLines = Math.max(1, Math.ceil(event.title.length / titleCharsPerLine));
+
+  return 16 + 18 + 4 + titleLines * 17 + (event.lane ? 8 + 24 : 0);
+}
+
 export function buildSections(minMs: number, maxMs: number, granularity: SectionGranularity): Section[] {
   const sections: Section[] = [];
 
@@ -168,7 +211,9 @@ export function buildTimelineFlow(
 ): TimelineFlowResult {
   const maxGapDays = options.maxGapDays ?? 90;
   const compressionRatio = options.compressionRatio ?? 0.02;
+  const minCompressedGapWidth = options.minCompressedGapWidth ?? 100;
   const clusterGapDays = options.clusterGapDays ?? 18;
+  const edgeStiffness = Math.max(0, Math.min(1, options.edgeStiffness ?? 0.9));
   const sectionGranularity = options.sectionGranularity ?? "year";
   const expandedGapKeys = options.expandedGapKeys ?? new Set<string>();
   const allExpanded = options.allExpanded ?? false;
@@ -176,6 +221,7 @@ export function buildTimelineFlow(
   const right = options.right ?? 3320;
   const axisY = options.axisY ?? 520;
   const bandSubEvents = options.bandSubEvents ?? {};
+  const nodeSizes = options.nodeSizes ?? {};
 
   // Parse events
   const parsedEvents: ParsedEvent[] = events.map((event, idx) => {
@@ -196,21 +242,30 @@ export function buildTimelineFlow(
     return { ...rest, startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs), style: style as Record<string, unknown> | undefined };
   });
 
+  const nowTs = Date.now();
   const allTs = [
     ...parsedEvents.map((e) => e.ts),
     ...parsedBands.flatMap((b) => [b.startMs, b.endMs]),
   ];
-  const minTs = Math.min(...allTs);
-  const maxTs = Math.max(...allTs);
+  // Include today so the timeline always extends to cover it
+  if (allTs.length > 0 && nowTs >= Math.min(...allTs)) {
+    allTs.push(nowTs);
+  }
+  const rawMinTs = Math.min(...allTs);
+  const rawMaxTs = Math.max(...allTs);
+  const rawSpan = Math.max(DAY_MS, rawMaxTs - rawMinTs);
+  const domainPad = Math.min(90 * DAY_MS, Math.max(7 * DAY_MS, rawSpan * 0.01));
+  const minTs = rawMinTs - domainPad;
+  const maxTs = rawMaxTs + domainPad;
 
   // Anchor timestamps
   const anchorTs = Array.from(
-    new Set<number>([minTs, maxTs + DAY_MS, ...parsedEvents.map((e) => e.ts), ...parsedBands.flatMap((b) => [b.startMs, b.endMs])]),
+    new Set<number>([minTs, maxTs + DAY_MS, ...parsedEvents.map((e) => e.ts), ...parsedBands.flatMap((b) => [b.startMs, b.endMs]), nowTs]),
   ).sort((a, b) => a - b);
 
   // Build segments with gap compression
   const gaps: GapInfo[] = [];
-  const segments: Array<{ start: number; end: number; vStart: number; vSpan: number }> = [];
+  const segments: Array<{ start: number; end: number; vStart: number; vSpan: number; compressed: boolean }> = [];
   let virtualCursor = 0;
 
   for (let i = 1; i < anchorTs.length; i += 1) {
@@ -228,9 +283,35 @@ export function buildTimelineFlow(
       gaps.push({ key: gapKey, startTs: start, endTs: end, gapDays, compressed });
     }
 
-    segments.push({ start, end, vStart: virtualCursor, vSpan });
+    segments.push({ start, end, vStart: virtualCursor, vSpan, compressed });
     virtualCursor += vSpan;
   }
+
+  if (minCompressedGapWidth > 0 && segments.some((segment) => segment.compressed)) {
+    const timelineWidth = Math.max(1, right - left);
+
+    for (let pass = 0; pass < 8; pass += 1) {
+      const domain = Math.max(1, segments.reduce((sum, segment) => sum + segment.vSpan, 0));
+      const minVirtualSpan = (minCompressedGapWidth / timelineWidth) * domain;
+      let changed = false;
+
+      for (const segment of segments) {
+        if (segment.compressed && segment.vSpan < minVirtualSpan) {
+          segment.vSpan = minVirtualSpan;
+          changed = true;
+        }
+      }
+
+      if (!changed) break;
+    }
+
+    virtualCursor = 0;
+    for (const segment of segments) {
+      segment.vStart = virtualCursor;
+      virtualCursor += segment.vSpan;
+    }
+  }
+
   const virtualDomain = Math.max(1, virtualCursor);
 
   const toVirtual = (ts: number): number => {
@@ -271,7 +352,7 @@ export function buildTimelineFlow(
   const rawSections = buildSections(minTs, maxTs, sectionGranularity);
   const dividerTop = 72;
   const dividerHeight = 760;
-  const sectionLabelY = 846;
+  const sectionLabelY = 858;
 
   // Determine if a section falls entirely within a compressed gap.
   const isSectionCompressed = (section: Section): boolean =>
@@ -326,15 +407,15 @@ export function buildTimelineFlow(
   });
 
   // Build label positions first, then stagger any that overlap
-  const labelHeight = 24;
-  const labelGap = 4;
+  const labelHeight = 20;
+  const labelGap = 3;
   const labelEntries: Array<{ section: Section; x: number; w: number; y: number }> = [];
 
   mergedSections.forEach((section) => {
     const x1 = toX(Math.max(minTs, section.start));
     const x2 = toX(Math.min(maxTs + DAY_MS, section.end));
     const centerX = (x1 + x2) / 2;
-    const labelWidth = section.label.length > 6 ? 140 : 104;
+    const labelWidth = section.label.length > 6 ? 116 : 76;
     const lx = centerX - labelWidth / 2;
 
     // Check if this label overlaps any already-placed label at the same Y row
@@ -362,8 +443,8 @@ export function buildTimelineFlow(
       data: { label: section.label },
       draggable: false,
       selectable: false,
-      zIndex: 40,
-      style: { width: w },
+      zIndex: 12,
+      style: { width: w, pointerEvents: "none" },
     });
   });
 
@@ -378,6 +459,23 @@ export function buildTimelineFlow(
     selectable: false,
     style: { width: right - left, height: 6, zIndex: 5, pointerEvents: "all", overflow: "visible" },
   });
+
+  // ─── Today indicator ────────────────────────────────────────────────────
+
+  // Today indicator — always show if today is within the timeline range
+  if (nowTs >= minTs) {
+    const todayX = toX(nowTs);
+    rfNodes.push({
+      id: "__today__",
+      type: "todayMarker",
+      position: { x: todayX - 1, y: dividerTop },
+      data: { label: "Today" },
+      draggable: false,
+      selectable: false,
+      zIndex: 45,
+      style: { width: 2, height: dividerHeight, overflow: "visible", pointerEvents: "none" },
+    });
+  }
 
   // ─── Gap breaks ────────────────────────────────────────────────────────
 
@@ -493,7 +591,7 @@ export function buildTimelineFlow(
         bandSide: bestSide,
       },
       draggable: false,
-      selectable: false,
+      selectable: true,
       style: { width: Math.max(220, x2 - x1), height: bandHeight, zIndex: 20, pointerEvents: "all", overflow: "visible" },
     });
 
@@ -516,7 +614,7 @@ export function buildTimelineFlow(
         target: `band-${band.id}`,
         sourceHandle: "timeline-source",
         targetHandle: handle.id,
-        type: "bezier",
+        type: "default",
         animated: false,
         style: { stroke: band.color ?? "#0ea5e9", strokeWidth: 2, strokeDasharray: "4 5" },
         markerEnd: { type: "arrowclosed", width: 12, height: 12, color: band.color ?? "#0ea5e9" },
@@ -534,12 +632,14 @@ export function buildTimelineFlow(
   for (const event of sorted) {
     const markerX = toX(event.ts);
     const cardW = Math.max(180, Math.min(280, 120 + event.title.length * 4.2));
+    const cardH = estimateEventCardHeight(event, cardW);
 
     if (current && event.ts - current.minTs <= concentrationGapMs) {
       const nextCount = current.events.length + 1;
       current.events.push(event);
       current.markerX = (current.markerX * (nextCount - 1) + markerX) / nextCount;
       current.cardW = Math.max(current.cardW, cardW);
+      current.cardH = Math.max(current.cardH, cardH);
       current.maxTs = event.ts;
       const topCount = current.events.filter((e) => e.side === "top").length;
       current.preferredSide = topCount >= current.events.length - topCount ? "top" : "bottom";
@@ -550,7 +650,7 @@ export function buildTimelineFlow(
         markerX,
         events: [event],
         cardW,
-        cardH: 112,
+        cardH: cardH,
         minTs: event.ts,
         maxTs: event.ts,
       };
@@ -563,22 +663,30 @@ export function buildTimelineFlow(
   // ─── Event placement (collision avoidance) ─────────────────────────────
 
   const placedCards: Array<{ side: "top" | "bottom"; x1: number; x2: number; y1: number; y2: number }> = [];
-  const rowLastRight = new Map<string, number>();
 
   for (const cluster of clusters) {
     const markerX = cluster.markerX;
-    const cardW = cluster.cardW;
-    const cardH = 112;
+    const isStack = cluster.events.length > 1;
+    const nodeId = isStack ? `event-stack-${cluster.id}` : `event-${cluster.events[0].id}`;
+    const measuredSize = nodeSizes[nodeId];
+    const cardW = measuredSize?.width ?? cluster.cardW;
+    const cardH = measuredSize?.height ?? (
+      isStack
+        ? estimateStackCardHeight(cluster.events[0], cardW)
+        : cluster.cardH
+    );
     const preferredSides: Array<"top" | "bottom"> =
       cluster.preferredSide === "top" ? ["top", "bottom"] : ["bottom", "top"];
 
-    const offsetSteps = [0, ...Array.from({ length: 10 }, (_, i) => (i + 1) * 36)];
+    const layerGap = 28;
+    const maxLevels = 9;
+    const offsetSteps = [0, -28, 28, -56, 56, -84, 84, -120, 120, -160, 160, -220, 220, -300, 300, -400, 400];
     let placed: { side: "top" | "bottom"; xCenter: number; y: number } | null = null;
 
     const collides = (c: { side: "top" | "bottom"; x1: number; x2: number; y1: number; y2: number }) =>
       placedCards.some((card) => {
         if (card.side !== c.side) return false;
-        return c.x1 <= card.x2 + 18 && c.x2 >= card.x1 - 18 && c.y1 <= card.y2 + 18 && c.y2 >= card.y1 - 18;
+        return c.x1 <= card.x2 + 14 && c.x2 >= card.x1 - 14 && c.y1 <= card.y2 + 8 && c.y2 >= card.y1 - 8;
       });
 
     // Compute safe Y positions based on bands that overlap this card's X range
@@ -592,47 +700,85 @@ export function buildTimelineFlow(
         }
       }
       if (side === "top") {
-        return topBandMinY === Number.POSITIVE_INFINITY ? axisY - 140 : topBandMinY - cardH - 20;
+        return topBandMinY === Number.POSITIVE_INFINITY ? axisY - cardH - 28 : topBandMinY - cardH - 18;
       }
-      return bottomBandMaxY === -Number.POSITIVE_INFINITY ? axisY + 80 : bottomBandMaxY + 20;
+      return bottomBandMaxY === -Number.POSITIVE_INFINITY ? axisY + 28 : bottomBandMaxY + 18;
     };
 
-    for (let level = 0; level <= 6 && !placed; level += 1) {
-      for (const side of preferredSides) {
-        const approxX1 = markerX - cardW / 2;
-        const approxX2 = markerX + cardW / 2;
-        const baseY = localBaseY(approxX1, approxX2, side);
-        const y = side === "top" ? baseY - level * 78 : baseY + level * 78;
-        const rowKey = `${side}:${level}`;
-        const minLeftInRow = (rowLastRight.get(rowKey) ?? left - 24) + 24;
-        for (const offset of offsetSteps) {
-          let xCenter = Math.max(left + cardW / 2, Math.min(right - cardW / 2, markerX + offset));
-          let x1 = xCenter - cardW / 2;
-          if (x1 < minLeftInRow) { x1 = minLeftInRow; xCenter = x1 + cardW / 2; }
-          if (xCenter > right - cardW / 2) continue;
-          const candidate = { side, x1, x2: xCenter + cardW / 2, y1: y, y2: y + cardH };
-          if (!collides(candidate)) {
-            placed = { side, xCenter, y };
-            placedCards.push(candidate);
-            rowLastRight.set(rowKey, candidate.x2);
-            break;
-          }
+    const stackedY = (x1: number, x2: number, side: "top" | "bottom", baseY: number) => {
+      const xCenter = (x1 + x2) / 2;
+      const overlappingCards = placedCards
+        .filter((card) => {
+          if (card.side !== side) return false;
+          const cardCenter = (card.x1 + card.x2) / 2;
+          const hasOverlap = x1 <= card.x2 + 14 && x2 >= card.x1 - 14;
+          const nearColumn = Math.abs(xCenter - cardCenter) <= Math.max(card.x2 - card.x1, x2 - x1) * 0.72;
+          return hasOverlap || nearColumn;
+        })
+        .sort((a, b) => side === "top" ? b.y1 - a.y1 : a.y2 - b.y2);
+
+      let y = baseY;
+      for (const card of overlappingCards) {
+        if (side === "top") {
+          const nextY = card.y1 - cardH - layerGap;
+          if (y + cardH + layerGap > card.y1) y = nextY;
+        } else {
+          const nextY = card.y2 + layerGap;
+          if (y < card.y2 + layerGap) y = nextY;
         }
-        if (placed) break;
+      }
+
+      return y;
+    };
+
+    const candidates: Array<{
+      side: "top" | "bottom";
+      xCenter: number;
+      y: number;
+      box: { side: "top" | "bottom"; x1: number; x2: number; y1: number; y2: number };
+      score: number;
+    }> = [];
+
+    preferredSides.forEach((side, sideIndex) => {
+      for (const offset of offsetSteps) {
+        const rawXCenter = markerX + offset;
+        const xCenter = Math.max(left + cardW / 2, Math.min(right - cardW / 2, rawXCenter));
+        const actualOffset = xCenter - markerX;
+        const x1 = xCenter - cardW / 2;
+        const x2 = xCenter + cardW / 2;
+        const baseY = localBaseY(x1, x2, side);
+        const y = stackedY(x1, x2, side, baseY);
+        const verticalDistance = Math.abs(y - baseY);
+
+        candidates.push({
+          side,
+          xCenter,
+          y,
+          box: { side, x1, x2, y1: y, y2: y + cardH },
+          score: Math.abs(actualOffset) * (0.45 + edgeStiffness * 1.95) + verticalDistance * 0.9 + sideIndex * 18,
+        });
+      }
+    });
+
+    candidates.sort((a, b) => a.score - b.score || Math.abs(a.xCenter - markerX) - Math.abs(b.xCenter - markerX));
+
+    for (const candidate of candidates) {
+      if (!collides(candidate.box)) {
+        placed = { side: candidate.side, xCenter: candidate.xCenter, y: candidate.y };
+        placedCards.push(candidate.box);
+        break;
       }
     }
 
     if (!placed) {
       const side = preferredSides[0];
       const fallbackY = localBaseY(markerX - cardW / 2, markerX + cardW / 2, side);
-      const y = side === "top" ? fallbackY - 7 * 78 : fallbackY + 7 * 78;
+      const fallbackStep = cardH + layerGap;
+      const y = side === "top" ? fallbackY - (maxLevels + 1) * fallbackStep : fallbackY + (maxLevels + 1) * fallbackStep;
       const xCenter = Math.max(left + cardW / 2, Math.min(right - cardW / 2, markerX));
       placed = { side, xCenter, y };
       placedCards.push({ side, x1: xCenter - cardW / 2, x2: xCenter + cardW / 2, y1: y, y2: y + cardH });
     }
-
-    const isStack = cluster.events.length > 1;
-    const nodeId = isStack ? `event-stack-${cluster.id}` : `event-${cluster.events[0].id}`;
 
     rfNodes.push({
       id: nodeId,
@@ -679,7 +825,7 @@ export function buildTimelineFlow(
         target: nodeId,
         sourceHandle: "timeline-source",
         targetHandle: "timeline-target",
-        type: "bezier",
+        type: "default",
         animated: false,
         style: { stroke: "#334155", strokeWidth: 2.4, strokeDasharray: "7 6" },
         markerEnd: { type: "arrowclosed", width: 14, height: 14, color: "#334155" },
