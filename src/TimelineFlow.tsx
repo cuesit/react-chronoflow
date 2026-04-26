@@ -16,6 +16,8 @@ import type { TimelineBandEvent, TimelinePointEvent, TimelineDate } from "./type
 import type { ReactNode } from "react";
 
 type NodeSizeMap = Record<string, { width: number; height: number }>;
+type TimelineFilterCategory = "lane" | "tag" | "source";
+type TimelineFilterState = { lanes: string[]; tags: string[]; sources: string[] };
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +66,12 @@ export interface TimelineFlowProps {
   zoomOnNodeClickZoom?: number;
   /** Duration (ms) of the zoom animation on node click. Default: 400 */
   zoomOnNodeClickDuration?: number;
+  /** Expand event/stack cards on click to reveal details and actions. Default: false */
+  expandableNodes?: boolean;
+  /** Controlled expanded node ID. */
+  expandedNodeId?: string | null;
+  /** Called when the expanded node changes. */
+  onExpandedNodeChange?: (nodeId: string | null) => void;
 
   // ─── Callbacks ─────────────────────────────────────────────────────────
   onToggleGap?: (gapKey: string) => void;
@@ -97,11 +105,11 @@ export interface TimelineFlowProps {
   /** Show the built-in filter bar. Default: false */
   showFilters?: boolean;
   /** Filter categories to show. Default: ["lane", "tag", "source"] */
-  filterCategories?: Array<"lane" | "tag" | "source">;
+  filterCategories?: TimelineFilterCategory[];
   /** Externally controlled active filters. If provided, internal filter state is ignored. */
-  activeFilters?: { lanes?: string[]; tags?: string[]; sources?: string[] };
+  activeFilters?: Partial<TimelineFilterState>;
   /** Called when filters change. */
-  onFiltersChange?: (filters: { lanes: string[]; tags: string[]; sources: string[] }) => void;
+  onFiltersChange?: (filters: TimelineFilterState) => void;
 
   /**
    * Pass the @xyflow/react module. This avoids a hard import so the library
@@ -153,6 +161,9 @@ export function TimelineFlow({
   zoomOnNodeClick = true,
   zoomOnNodeClickZoom = 1,
   zoomOnNodeClickDuration = 400,
+  expandableNodes = false,
+  expandedNodeId: expandedNodeIdProp,
+  onExpandedNodeChange,
   onToggleGap: onToggleGapProp,
   onAddEvent: onAddEventProp,
   onDeleteEvent: onDeleteEventProp,
@@ -185,12 +196,12 @@ export function TimelineFlow({
   } catch { /* not in provider */ }
 
   // ─── Filtering ──────────────────────────────────────────────────────────
-  const [internalFilters, setInternalFilters] = useState<{ lanes: string[]; tags: string[]; sources: string[] }>({ lanes: [], tags: [], sources: [] });
+  const [internalFilters, setInternalFilters] = useState<TimelineFilterState>({ lanes: [], tags: [], sources: [] });
   const filters = activeFiltersProp
     ? { lanes: activeFiltersProp.lanes ?? [], tags: activeFiltersProp.tags ?? [], sources: activeFiltersProp.sources ?? [] }
     : internalFilters;
 
-  const setFilters = useCallback((next: { lanes: string[]; tags: string[]; sources: string[] }) => {
+  const setFilters = useCallback((next: TimelineFilterState) => {
     if (!activeFiltersProp) setInternalFilters(next);
     onFiltersChange?.(next);
   }, [activeFiltersProp, onFiltersChange]);
@@ -217,7 +228,7 @@ export function TimelineFlow({
     };
   }, [events, bands]);
 
-  const toggleFilter = useCallback((category: "lanes" | "tags" | "sources", value: string) => {
+  const toggleFilter = useCallback((category: keyof TimelineFilterState, value: string) => {
     setFilters({
       ...filters,
       [category]: filters[category].includes(value)
@@ -252,6 +263,12 @@ export function TimelineFlow({
   // Gap state
   const [expandedGapKeys, setExpandedGapKeys] = useState<Set<string>>(new Set());
   const [nodeSizes, setNodeSizes] = useState<NodeSizeMap>({});
+  const [internalExpandedNodeId, setInternalExpandedNodeId] = useState<string | null>(null);
+  const expandedNodeId = expandedNodeIdProp !== undefined ? expandedNodeIdProp : internalExpandedNodeId;
+  const setExpandedNodeId = useCallback((nodeId: string | null) => {
+    if (expandedNodeIdProp === undefined) setInternalExpandedNodeId(nodeId);
+    onExpandedNodeChange?.(nodeId);
+  }, [expandedNodeIdProp, onExpandedNodeChange]);
 
   const handleToggleGap = useCallback(
     (gapKey: string) => {
@@ -280,6 +297,7 @@ export function TimelineFlow({
   const [addMode, setAddMode] = useState<null | "ghost" | "editing">(null);
   // Only used when addMode === "editing" — the confirmed placement position + date
   const [editPos, setEditPos] = useState<{ x: number; y: number; date: string; ts: number } | null>(null);
+  const [ghostSeed, setGhostSeed] = useState<{ x: number; y: number } | null>(null);
 
   const resolvedAxisY = graph.axisY;
   const axisLeft = graph.nodes.find((n) => n.id === "axis")?.position.x ?? 120;
@@ -291,9 +309,10 @@ export function TimelineFlow({
     (relativeX: number) => {
       if (!onAddEventProp) return;
       if (addMode != null) return;
+      setGhostSeed({ x: axisLeft + relativeX, y: resolvedAxisY - 24 });
       setAddMode("ghost");
     },
-    [onAddEventProp, addMode],
+    [onAddEventProp, addMode, axisLeft, resolvedAxisY],
   );
 
   // Step 2: ghost mode — inject into RF viewport (flow coordinate space = auto zoom/pan)
@@ -367,52 +386,61 @@ export function TimelineFlow({
     const cardW = 160;
     const cardH = 70; // approximate ghost card height
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!rfInstance?.screenToFlowPosition) return;
-      const flowPos = rfInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-
-      const ts = graph.fromX(flowPos.x);
+    const updateGhost = (flowX: number, flowY: number) => {
+      const ts = graph.fromX(flowX);
       const date = new Date(ts);
       const label = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase();
 
       // Cursor anchors to right corner of the card:
       // Above axis: cursor at bottom-right
       // Below axis: cursor at top-right
-      const above = flowPos.y < axisYPx;
+      const above = flowY < axisYPx;
       const offsetX = -cardW;
       const offsetY = above ? -cardH : 0;
 
-      ghostCard.style.transform = `translate(${flowPos.x + offsetX}px, ${flowPos.y + offsetY}px)`;
+      ghostCard.style.transform = `translate(${flowX + offsetX}px, ${flowY + offsetY}px)`;
       ghostCard.style.display = "block";
       dateDiv.textContent = label;
 
-      ghostDot.style.transform = `translate(${flowPos.x - 4}px, ${axisYPx - 4}px)`;
+      ghostDot.style.transform = `translate(${flowX - 4}px, ${axisYPx - 4}px)`;
       ghostDot.style.display = "block";
 
       // Bezier connector from axis dot to the nearest card edge
-      const endX = flowPos.x + offsetX + cardW / 2;
-      const endY = above ? flowPos.y + offsetY + cardH : flowPos.y + offsetY;
+      const endX = flowX + offsetX + cardW / 2;
+      const endY = above ? flowY + offsetY + cardH : flowY + offsetY;
       const dy = endY - axisYPx;
       const c1y = axisYPx + dy * 0.35;
       const c2y = endY - dy * 0.35;
-      ghostPath.setAttribute("d", `M ${flowPos.x} ${axisYPx} C ${flowPos.x} ${c1y}, ${endX} ${c2y}, ${endX} ${endY}`);
+      ghostPath.setAttribute("d", `M ${flowX} ${axisYPx} C ${flowX} ${c1y}, ${endX} ${c2y}, ${endX} ${endY}`);
 
-      container.dataset.ghostFlowX = String(flowPos.x);
-      container.dataset.ghostFlowY = String(flowPos.y);
+      container.dataset.ghostFlowX = String(flowX);
+      container.dataset.ghostFlowY = String(flowY);
       container.dataset.ghostDate = label;
       container.dataset.ghostTs = String(ts);
+    };
+
+    if (ghostSeed) {
+      updateGhost(ghostSeed.x, ghostSeed.y);
+    }
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!rfInstance?.screenToFlowPosition) return;
+      const flowPos = rfInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      updateGhost(flowPos.x, flowPos.y);
     };
 
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest(".react-flow__node") || target.closest("button") || target.closest("input")) return;
 
-      const flowX = parseFloat(container.dataset.ghostFlowX ?? "0");
-      const flowY = parseFloat(container.dataset.ghostFlowY ?? "0");
-      const dateLabel = container.dataset.ghostDate ?? "";
-      const ts = parseFloat(container.dataset.ghostTs ?? "0");
+      const flowPos = rfInstance?.screenToFlowPosition
+        ? rfInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY })
+        : { x: parseFloat(container.dataset.ghostFlowX ?? "0"), y: parseFloat(container.dataset.ghostFlowY ?? "0") };
+      const ts = graph.fromX(flowPos.x);
+      const date = new Date(ts);
+      const dateLabel = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase();
 
-      setEditPos({ x: flowX, y: flowY, date: dateLabel, ts });
+      setEditPos({ x: flowPos.x, y: flowPos.y, date: dateLabel, ts });
       setAddMode("editing");
     };
 
@@ -432,7 +460,7 @@ export function TimelineFlow({
       ghostDot.remove();
       ghostSvg.remove();
     };
-  }, [addMode, rfInstance, graph, resolvedAxisY]);
+  }, [addMode, rfInstance, graph, resolvedAxisY, ghostSeed]);
 
   // Escape during editing mode
   useEffect(() => {
@@ -597,6 +625,11 @@ export function TimelineFlow({
         extra.nodeId = node.id;
       }
 
+      if (expandableNodes && (node.type === "event" || node.type === "eventStack")) {
+        extra.expandable = true;
+        extra.expanded = expandedNodeId === node.id;
+      }
+
       // Inject edit + delete callbacks for user-created events
       if (node.type === "event" && node.data.source === "user") {
         if (onDeleteEventProp) extra.onDelete = () => onDeleteEventProp(node.data.eventId as string);
@@ -608,7 +641,7 @@ export function TimelineFlow({
 
       return Object.keys(extra).length ? { ...node, data: { ...node.data, ...extra } } : node;
     }),
-    [graph.nodes, handleToggleGap, handleAxisClick, onAddEventProp, onDeleteEventProp, onEditEventProp, renderNodeOverlay, addMode],
+    [graph.nodes, handleToggleGap, handleAxisClick, onAddEventProp, onDeleteEventProp, onEditEventProp, renderNodeOverlay, expandableNodes, expandedNodeId, addMode],
   );
 
   // Node types
@@ -699,6 +732,7 @@ export function TimelineFlow({
   );
 
   const fitView = rfInstance?.fitView ?? null;
+  const setCenter = rfInstance?.setCenter ?? null;
 
   const prevAddMode = useRef<string | null>(null);
 
@@ -708,18 +742,23 @@ export function TimelineFlow({
     setNodes(allNodes);
     setEdges(allEdges);
 
-    // Zoom to edit node when entering editing mode
-    if (addMode === "editing" && prevAddMode.current !== "editing" && fitView && editPos) {
+    // Zoom directly to the edit card when entering editing mode. Avoid fitView here:
+    // the temporary node may not be mounted yet, and fitView can jump to the graph center.
+    if (addMode === "editing" && prevAddMode.current !== "editing" && setCenter && editPos) {
+      let frame = 0;
       const timer = setTimeout(() => {
-        fitView({
-          nodes: [{ id: "__add-event-ghost__" }],
-          padding: 1.5,
-          duration: 400,
-          maxZoom: 1,
+        frame = window.requestAnimationFrame(() => {
+          setCenter(editPos.x, editPos.y, {
+            zoom: 1,
+            duration: 400,
+          });
         });
       }, 80);
       prevAddMode.current = addMode;
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        if (frame) window.cancelAnimationFrame(frame);
+      };
     }
     prevAddMode.current = addMode;
 
@@ -730,35 +769,58 @@ export function TimelineFlow({
       return () => clearTimeout(timer);
     }
     prevGapSig.current = sig;
-  }, [nodesWithCallbacks, graph.edges, graph.gaps, addEventNodes, addMode, editPos, setNodes, setEdges, fitView, fitViewPadding, fitViewDuration]);
+  }, [nodesWithCallbacks, graph.edges, graph.gaps, addEventNodes, addMode, editPos, resolvedAxisY, setNodes, setEdges, fitView, setCenter, fitViewPadding, fitViewDuration]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container || typeof ResizeObserver === "undefined") return;
 
     const observed = new Map<Element, string>();
-    const observer = new ResizeObserver((entries) => {
+    let frame = 0;
+    let pending: NodeSizeMap = {};
+
+    const flush = () => {
+      frame = 0;
+      const updates = pending;
+      pending = {};
+
       setNodeSizes((prev) => {
         let changed = false;
-        const next: NodeSizeMap = { ...prev };
+        const next: NodeSizeMap = {};
+        const liveIds = new Set(observed.values());
 
-        for (const entry of entries) {
-          const id = observed.get(entry.target);
-          if (!id) continue;
+        for (const id of liveIds) {
+          const size = updates[id] ?? prev[id];
+          if (size) next[id] = size;
+        }
 
-          const width = Math.round(entry.contentRect.width);
-          const height = Math.round(entry.contentRect.height);
-          if (width <= 0 || height <= 0) continue;
+        if (Object.keys(next).length !== Object.keys(prev).length) changed = true;
 
-          const prior = next[id];
-          if (!prior || Math.abs(prior.width - width) > 1 || Math.abs(prior.height - height) > 1) {
-            next[id] = { width, height };
+        for (const [id, size] of Object.entries(next)) {
+          const prior = prev[id];
+          if (!prior || Math.abs(prior.width - size.width) > 1 || Math.abs(prior.height - size.height) > 1) {
             changed = true;
+            break;
           }
         }
 
         return changed ? next : prev;
       });
+    };
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const id = observed.get(entry.target);
+        if (!id) continue;
+
+        const width = Math.round(entry.contentRect.width);
+        const height = Math.round(entry.contentRect.height);
+        if (width <= 0 || height <= 0) continue;
+
+        pending[id] = { width, height };
+      }
+
+      if (!frame) frame = window.requestAnimationFrame(flush);
     });
 
     const observeRenderedNodes = () => {
@@ -777,6 +839,7 @@ export function TimelineFlow({
     mutationObserver.observe(container, { childList: true, subtree: true });
 
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
       mutationObserver.disconnect();
       observer.disconnect();
     };
@@ -851,7 +914,10 @@ export function TimelineFlow({
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={(_: unknown, node: Record<string, unknown>) => {
-          console.log("[TimelineFlow] onNodeClick fired", { id: node.id, type: node.type, position: node.position, style: node.style, hasSetCenter: !!rfInstance?.setCenter, zoomOnNodeClick });
+          if (expandableNodes && (node.type === "event" || node.type === "eventStack")) {
+            const nodeId = node.id as string;
+            setExpandedNodeId(expandedNodeId === nodeId ? null : nodeId);
+          }
           if (onNodeClickProp) {
             onNodeClickProp(node.type as string, node.id as string, node.data as Record<string, unknown>);
           }
@@ -875,7 +941,7 @@ export function TimelineFlow({
           onNodeHoverProp(node.type as string, node.id as string, node.data as Record<string, unknown>, false);
         } : undefined}
         nodeTypes={mergedNodeTypes}
-        fitView
+        fitView={addMode !== "editing"}
         fitViewOptions={{ padding: fitViewPadding, minZoom: 0.22 }}
         minZoom={minZoom}
         maxZoom={maxZoom}

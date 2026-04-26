@@ -15,6 +15,9 @@ const S = {
   eventLaneRow: { marginTop: 8, display: "flex", flexWrap: "wrap" as const, alignItems: "center", gap: 4 },
   eventLane: { display: "inline-flex", borderRadius: 9999, border: "1px solid #fcd34d", background: "#fff", padding: "2px 8px", fontSize: 11, fontWeight: 500, color: "#475569" },
   eventTag: { display: "inline-flex", borderRadius: 9999, border: "1px solid #e2e8f0", background: "#f8fafc", padding: "2px 6px", fontSize: 9, fontWeight: 600, color: "#64748b" },
+  eventDetail: { marginTop: 10, borderTop: "1px solid rgba(251,191,36,0.42)", paddingTop: 9, fontSize: 11, lineHeight: 1.45, color: "#475569" },
+  eventActionRow: { marginTop: 9, display: "flex", flexWrap: "wrap" as const, gap: 6 },
+  eventActionBtn: { borderRadius: 9999, border: "1px solid #fcd34d", background: "rgba(255,255,255,0.82)", padding: "4px 9px", fontSize: 10, fontWeight: 700, color: "#92400e", cursor: "pointer" },
   deleteBtn: { position: "absolute" as const, right: -8, top: -8, zIndex: 10, display: "flex", width: 20, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 9999, border: "1px solid #fecaca", background: "#fff", color: "#cbd5e1", boxShadow: "0 1px 2px rgba(0,0,0,0.05)", cursor: "pointer", transition: "all 0.15s" },
   deleteBtnHidden: { opacity: 0, pointerEvents: "none" as const },
   deleteBtnVisible: { opacity: 1, pointerEvents: "auto" as const },
@@ -76,6 +79,8 @@ export function EventNode({ data, className, renderContent }: EventNodeProps) {
   const description = typeof data.description === "string" ? data.description : "";
   const side = data.side === "bottom" ? "bottom" : "top";
   const tags = Array.isArray(data.tags) ? (data.tags as string[]) : [];
+  const expanded = data.expanded === true;
+  const expandable = data.expandable === true;
   const source = data.source as string | undefined;
   const eventId = typeof data.eventId === "string" ? data.eventId : "";
   const onDelete = typeof data.onDelete === "function" ? data.onDelete : null;
@@ -171,6 +176,21 @@ export function EventNode({ data, className, renderContent }: EventNodeProps) {
         <div style={S.eventLane}>{lane}</div>
         {tags.map((tag) => <span key={tag} style={S.eventTag}>{tag}</span>)}
       </div>
+      {expanded && (
+        <div style={S.eventDetail}>
+          {description ? <div>{description}</div> : <div>No additional description.</div>}
+          <div style={S.eventActionRow}>
+            <button type="button" style={S.eventActionBtn} onClick={(e) => e.stopPropagation()}>Open</button>
+            <button type="button" style={S.eventActionBtn} onClick={(e) => e.stopPropagation()}>Copy</button>
+            {onEdit && source === "user" ? (
+              <button type="button" style={S.eventActionBtn} onClick={(e) => { e.stopPropagation(); setEditing(true); }}>Edit</button>
+            ) : null}
+          </div>
+        </div>
+      )}
+      {expandable && !expanded && description ? (
+        <div style={{ marginTop: 8, fontSize: 10, fontWeight: 700, color: "#b45309" }}>Click for details</div>
+      ) : null}
       {hovered && nodeOverlayFn && (
         <div style={{ position: "absolute", left: 0, right: 0, bottom: -4, transform: "translateY(100%)" }}>
           {nodeOverlayFn({ nodeType, nodeId, data: data as Record<string, unknown> })}
@@ -283,6 +303,7 @@ export function EventStackNode({ data, className, fanLayout = "cascade", fanStep
   const events = Array.isArray(data.events) ? data.events : [];
   const lead = events[0] ?? { date: "", title: "Cluster", lane: "General" };
   const rest = events.slice(1) as Array<{ id: string; title: string; date: string; lane: string }>;
+  const expandedDetails = data.expanded === true;
   const fanDirY = side === "top" ? -1 : 1;
   const maxStackPeek = Math.min(rest.length, 3);
   const fanPositions = computeFanPositions(rest.length, fanLayout, fanDirY as 1 | -1, fanStepY, fanStepX, fanRadius, fanStretchX);
@@ -362,6 +383,19 @@ export function EventStackNode({ data, className, fanLayout = "cascade", fanStep
             </div>
             <div style={S.eventTitle}>{lead.title}</div>
             <div style={{ marginTop: 8 }}><span style={S.eventLane}>{lead.lane}</span></div>
+            {expandedDetails && (
+              <div style={S.eventDetail}>
+                <div>{events.length} events in this cluster.</div>
+                <div style={{ marginTop: 8, display: "grid", gap: 5 }}>
+                  {(events as Array<{ id: string; title: string; date: string; lane?: string }>).map((event) => (
+                    <div key={event.id} style={{ display: "grid", gap: 1 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: "#92400e" }}>{event.date}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#1e293b" }}>{event.title}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -478,6 +512,7 @@ export function AxisNode({ data, className }: AxisNodeProps) {
   const addModeActive = data.addModeActive === true;
   const handleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!axisRef.current || !onAxisClick) return;
+    e.stopPropagation();
     const rect = axisRef.current.getBoundingClientRect();
     const zoom = rect.width / axisRef.current.offsetWidth;
     (onAxisClick as (x: number) => void)((e.clientX - rect.left) / zoom);
