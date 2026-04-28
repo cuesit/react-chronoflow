@@ -303,6 +303,16 @@ const WATER_ST_BANDS: WaterStBandEvent[] = [
   },
 ];
 
+const WATER_ST_BAND_SUB_EVENTS = {
+  "water-band-1": [
+    { id: "water-sub-1", title: "Access", date: "2026-03-12" },
+    { id: "water-sub-2", title: "ESA", date: "2026-03-13" },
+    { id: "water-sub-3", title: "Survey", date: "2026-03-14" },
+    { id: "water-sub-4", title: "Title", date: "2026-03-16" },
+    { id: "water-sub-5", title: "Utility", date: "2026-03-18" },
+  ],
+};
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 type Tab = "full" | "compact" | "water-st";
@@ -427,7 +437,7 @@ export default function App() {
             <TimelineFlow
               events={WATER_ST_EVENTS}
               bands={WATER_ST_BANDS}
-              bandSubEvents={{}}
+              bandSubEvents={WATER_ST_BAND_SUB_EVENTS}
               xyflow={xyflow}
               sectionGranularity="year"
               maxGapDays={365}

@@ -42,10 +42,12 @@ const S = {
   marker: { width: 12, height: 12, borderRadius: 9999, border: "2px solid #0f172a", background: "#e2e8f0" },
   // Band
   bandOverlay: { position: "absolute" as const, inset: 0, borderRadius: 16, transition: "background-color 0.2s" },
-  bandLabel: { fontSize: 13, fontWeight: 800, lineHeight: 1.2, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.15)", fontFamily: "system-ui, -apple-system, sans-serif" },
-  bandSubtitle: { marginTop: 4, fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.95)" },
+  bandLabel: { fontSize: 13, fontWeight: 800, lineHeight: 1.2, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.15)", fontFamily: "system-ui, -apple-system, sans-serif", whiteSpace: "nowrap" as const },
+  bandSubtitle: { marginTop: 4, fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap" as const },
   bandSubEvent: { position: "absolute" as const, top: 44, borderRadius: 9999, border: "1px solid rgba(255,255,255,0.6)", background: "rgba(255,255,255,0.2)", padding: "2px 8px", fontSize: 10, fontWeight: 700, color: "#fff", transition: "all 0.2s", whiteSpace: "nowrap" as const, maxWidth: "90%" },
   bandSubEventDate: { marginLeft: 4, fontWeight: 500, color: "rgba(255,255,255,0.7)" },
+  bandSubEventCluster: { position: "absolute" as const, top: 42, borderRadius: 9999, border: "1px solid rgba(255,255,255,0.72)", background: "rgba(255,255,255,0.28)", padding: "3px 8px", fontSize: 10, fontWeight: 800, color: "#fff", whiteSpace: "nowrap" as const, cursor: "default" },
+  bandSubEventPopover: { position: "absolute" as const, left: "50%", bottom: "calc(100% + 8px)", transform: "translateX(-50%)", minWidth: 150, borderRadius: 8, border: "1px solid rgba(15,23,42,0.12)", background: "rgba(255,255,255,0.96)", color: "#1e293b", boxShadow: "0 14px 32px -24px rgba(15,23,42,0.7)", padding: "8px 9px", zIndex: 5 },
   // AddEvent form
   input: { width: "100%", borderRadius: 6, border: "1px solid", background: "#fff", padding: "4px 8px", fontSize: 13, fontWeight: 600, color: "#1e293b", outline: "none" },
   inputSmall: { width: "100%", borderRadius: 6, border: "1px solid", background: "#fff", padding: "4px 8px", fontSize: 11, color: "#475569", outline: "none", marginTop: 6 },
@@ -724,6 +726,31 @@ export interface BandNodeProps {
   renderContent?: (props: { label: string; subtitle: string; color: string; subEvents: Array<{ id: string; title: string; date: string; ratio: number }> }) => ReactNode;
 }
 
+type BandSubEvent = { id: string; title: string; date: string; ratio: number; ts: number };
+type BandSubEventCluster = { id: string; ratio: number; subEvents: BandSubEvent[] };
+
+function clusterBandSubEvents(subEvents: BandSubEvent[], thresholdRatio = 0.09): BandSubEventCluster[] {
+  const sorted = [...subEvents].sort((a, b) => a.ratio - b.ratio || a.id.localeCompare(b.id));
+  const clusters: BandSubEventCluster[] = [];
+
+  for (const subEvent of sorted) {
+    const last = clusters[clusters.length - 1];
+    const lastItem = last?.subEvents[last.subEvents.length - 1];
+    if (last && lastItem && subEvent.ratio - lastItem.ratio <= thresholdRatio) {
+      last.subEvents.push(subEvent);
+      last.ratio = last.subEvents.reduce((sum, item) => sum + item.ratio, 0) / last.subEvents.length;
+    } else {
+      clusters.push({ id: subEvent.id, ratio: subEvent.ratio, subEvents: [subEvent] });
+    }
+  }
+
+  return clusters;
+}
+
+function bandSubEventTransform(ratio: number) {
+  return `translateX(${ratio < 0.15 ? "0%" : ratio > 0.85 ? "-100%" : "-50%"})`;
+}
+
 export function BandNode({ data, className, renderContent }: BandNodeProps) {
   const label = typeof data.label === "string" ? data.label : "";
   const subtitle = typeof data.subtitle === "string" ? data.subtitle : "";
@@ -731,7 +758,8 @@ export function BandNode({ data, className, renderContent }: BandNodeProps) {
   const source = data.source as string | undefined;
   const onDelete = typeof data.onDelete === "function" ? data.onDelete : null;
   const [hovered, setHovered] = React.useState(false);
-  const subEvents = Array.isArray(data.subEvents) ? (data.subEvents as Array<{ id: string; title: string; date: string; ratio: number; ts: number }>) : [];
+  const subEvents = Array.isArray(data.subEvents) ? (data.subEvents as BandSubEvent[]) : [];
+  const subEventClusters = React.useMemo(() => clusterBandSubEvents(subEvents), [subEvents]);
 
   if (renderContent) {
     return <div className={className} style={className ? undefined : { position: "relative", width: "100%", height: "100%", borderRadius: 16, padding: "8px 12px", overflow: "visible", backgroundColor: toRgba(color, 0.68) }}>{renderContent({ label, subtitle, color, subEvents })}</div>;
@@ -759,11 +787,30 @@ export function BandNode({ data, className, renderContent }: BandNodeProps) {
       <div style={{ position: "relative", width: "100%", height: "100%" }}>
         <div style={S.bandLabel}>{label}</div>
         {subtitle ? <div style={S.bandSubtitle}>{subtitle}</div> : null}
-        {subEvents.map((sub) => (
-          <span key={sub.id} style={{ ...S.bandSubEvent, left: `clamp(0%, ${sub.ratio * 100}%, 100%)`, transform: `translateX(${sub.ratio < 0.15 ? "0%" : sub.ratio > 0.85 ? "-100%" : "-50%"})` }}>
-            {sub.title}<span style={S.bandSubEventDate}>{sub.date}</span>
-          </span>
-        ))}
+        {subEventClusters.map((cluster) => {
+          if (cluster.subEvents.length === 1) {
+            const sub = cluster.subEvents[0];
+            return (
+              <span key={sub.id} style={{ ...S.bandSubEvent, left: `clamp(0%, ${sub.ratio * 100}%, 100%)`, transform: bandSubEventTransform(sub.ratio) }}>
+                {sub.title}<span style={S.bandSubEventDate}>{sub.date}</span>
+              </span>
+            );
+          }
+
+          return (
+            <span key={cluster.subEvents.map((sub) => sub.id).join("-")} className="rcf-band-sub-event-cluster" tabIndex={0} style={{ ...S.bandSubEventCluster, left: `clamp(0%, ${cluster.ratio * 100}%, 100%)`, transform: bandSubEventTransform(cluster.ratio) }}>
+              {cluster.subEvents.length} events
+              <span className="rcf-band-sub-event-popover" style={S.bandSubEventPopover}>
+                {cluster.subEvents.map((sub) => (
+                  <span key={sub.id} style={{ display: "grid", gap: 1, padding: "3px 0" }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: "#0f172a" }}>{sub.title}</span>
+                    <span style={{ fontSize: 10, color: "#64748b" }}>{sub.date}</span>
+                  </span>
+                ))}
+              </span>
+            </span>
+          );
+        })}
       </div>
     </div>
   );

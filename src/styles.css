@@ -55,3 +55,30 @@
   box-shadow: 0 18px 36px -20px rgba(120, 53, 15, 0.5) !important;
   transform: translateY(-2px) scale(1.02);
 }
+
+.rcf-band-sub-event-popover {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.rcf-band-sub-event-popover::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid rgba(15, 23, 42, 0.12);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.rcf-band-sub-event-popover:hover,
+.rcf-band-sub-event-cluster:hover .rcf-band-sub-event-popover,
+.rcf-band-sub-event-cluster:focus .rcf-band-sub-event-popover,
+.rcf-band-sub-event-cluster:focus-within .rcf-band-sub-event-popover {
+  opacity: 1;
+  pointer-events: auto;
+}

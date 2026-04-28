@@ -172,6 +172,10 @@ function estimateStackCardHeight(event: Pick<TimelinePointEvent, "title" | "lane
   return 16 + 18 + 4 + titleLines * 17 + (event.lane ? 8 + 24 : 0);
 }
 
+function estimateBandContentWidth(title: string, subtitle: string): number {
+  return Math.max(220, title.length * 8.2 + 32, subtitle.length * 6.8 + 32);
+}
+
 export function buildSections(minMs: number, maxMs: number, granularity: SectionGranularity): Section[] {
   const sections: Section[] = [];
 
@@ -522,6 +526,9 @@ export function buildTimelineFlow(
     const x2 = toX(band.endMs);
     const startLabel = formatEventDate(band.start);
     const endLabel = formatEventDate(band.end);
+    const subtitle = band.lane ? `${band.lane} • ${startLabel} -> ${endLabel}` : `${startLabel} -> ${endLabel}`;
+    const bandWidth = Math.max(220, x2 - x1, estimateBandContentWidth(band.title, subtitle));
+    const renderedX2 = x1 + bandWidth;
     const subEvents = bandSubEvents[band.id] ?? [];
     const subEventPoints = subEvents.map((sub) => ({ ...sub, ts: toUtcMs(sub.date) }));
     const connectorPoints = [
@@ -544,7 +551,7 @@ export function buildTimelineFlow(
       if (topRowLastX2[tryRow] === undefined || x1 > topRowLastX2[tryRow] + 24) {
         bestSide = "top";
         bestRow = tryRow;
-        topRowLastX2[tryRow] = x2;
+        topRowLastX2[tryRow] = renderedX2;
         placed = true;
         break;
       }
@@ -552,7 +559,7 @@ export function buildTimelineFlow(
       if (bottomRowLastX2[tryRow] === undefined || x1 > bottomRowLastX2[tryRow] + 24) {
         bestSide = "bottom";
         bestRow = tryRow;
-        bottomRowLastX2[tryRow] = x2;
+        bottomRowLastX2[tryRow] = renderedX2;
         placed = true;
         break;
       }
@@ -562,14 +569,14 @@ export function buildTimelineFlow(
       // Fallback: stack on top
       bestSide = "top";
       bestRow = topRowLastX2.length;
-      topRowLastX2[bestRow] = x2;
+      topRowLastX2[bestRow] = renderedX2;
     }
 
     const bandY = bestSide === "top"
       ? axisY - bandOffsetFromAxis - bestRow * (bandHeight + bandGap)
       : axisY + bandOffsetFromAxis - bandHeight + bestRow * (bandHeight + bandGap);
 
-    bandBounds.push({ x1, x2, y: bandY, side: bestSide });
+    bandBounds.push({ x1, x2: renderedX2, y: bandY, side: bestSide });
 
     rfNodes.push({
       id: `band-${band.id}`,
@@ -578,7 +585,7 @@ export function buildTimelineFlow(
       data: {
         bandId: band.id,
         label: band.title,
-        subtitle: band.lane ? `${band.lane} • ${startLabel} -> ${endLabel}` : `${startLabel} -> ${endLabel}`,
+        subtitle,
         color: band.color,
         source: band.source,
         tags: band.tags,
@@ -592,7 +599,7 @@ export function buildTimelineFlow(
       },
       draggable: false,
       selectable: true,
-      style: { width: Math.max(220, x2 - x1), height: bandHeight, zIndex: 20, pointerEvents: "all", overflow: "visible" },
+      style: { width: bandWidth, height: bandHeight, zIndex: 20, pointerEvents: "all", overflow: "visible" },
     });
 
     connectorHandles.forEach((handle) => {
